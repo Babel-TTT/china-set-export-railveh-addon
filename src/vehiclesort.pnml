@@ -11,4 +11,6 @@
 //Within a table the order is the row order of the CSV file.
 
 sort (FEAT_TRAINS, [
+    // Locomotives/Diesel
+    df4c,
 ]);

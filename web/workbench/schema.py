@@ -80,8 +80,16 @@ CITIES: List[Dict[str, str]] = [
      "category": "unit_wagon", "note": "category 被忽略，固定按 unit_wagon 处理。"},
 ]
 
-MODEL_KINDS: List[str] = ["single", "triple"]
+MODEL_KINDS: List[str] = ["triple"]   # kept for reference; the model column is gone
 POWER_UNITS: List[str] = ["kW", "hp"]
+
+# variables allowed in a graphics_parts condition
+GRAPHICS_VARIABLES: Dict[str, str] = {
+    "pos": "position_in_consist（整列第几节，从 0 开始）",
+    "tailpos": "position_in_consist_from_end（从尾部数第几节）",
+    "consist": "num_vehs_in_consist（整列总节数）",
+    "unitpos": "position_in_articulated_veh（本车第几段）",
+}
 
 CLIMATES: List[str] = [
     "ALL_CLIMATES", "TEMPERATE", "ARCTIC", "TROPIC", "TOYLAND",
@@ -118,15 +126,23 @@ VEHICLE_FIELDS: List[tuple] = [
     ("folder", "identity", "text", "gfx 子目录", {
         "default": "diesel", "placeholder": "diesel",
         "help": "模型所在目录，也是精灵图模板的第一个参数。只能是 gfx/ 下的单层目录名。"}),
-    ("model", "identity", "enum", "模型类型", {
-        "choices": MODEL_KINDS, "default": "triple",
-        "help": "single = 整节一体；triple = 由铰接回调重复的前-身-后三段结构。"}),
     ("parts", "identity", "list", "分段长度", {
         "default": "2|8|2", "placeholder": "2|8|2",
-        "help": "段长，例如 2|8|2；| , ; 都可以作分隔符。model=single 时只用第一个值。"}),
+        "help": "三段长度，| , ; 都可作分隔符，例如 2|8|2。中间那个是车身长度，"
+                "两端固定为 2（隐形车厢）。"}),
     ("power_section", "identity", "int", "动力段索引", {
         "default": "1", "min": 0,
-        "help": "承载车体图形、功率与载量的段序号（从 0 开始），triple 结构通常是 1。"}),
+        "help": "承载车体图形、功率与载量的段序号（从 0 开始），三段结构就是 1。"}),
+    ("graphics_parts", "identity", "list", "分节图像规则", {
+        "default": "",
+        "placeholder": "consist<=6=emu_short | emu_mid | consist<=6=emu_short;"
+                       "emu_midbody;"
+                       "consist<=6=emu_short | emu_mid | consist<=6=emu_short",
+        "help": "按段用 ; 分隔（需与 parts 段数一致），段内用 | 分隔规则，"
+                "规则写成 条件=基名 或 只写基名（兜底）。"
+                "可用变量：pos（整列第几节，从 0 起）、tailpos（从尾部数）、"
+                "consist（整列节数）、unitpos（本车第几段）。"
+                "留空则只有车身段出图、两端隐形。"}),
 
     ("intro_year", "dates", "int", "启用年份", {
         "default": "1950", "min": 1800, "max": 2200}),
@@ -337,6 +353,7 @@ def payload() -> Dict[str, Any]:
         "railtypes": railtype_labels(),
         "cargo_classes": CARGO_CLASSES,
         "cargo_labels": cargotype_labels(),
+        "graphics_variables": GRAPHICS_VARIABLES,
         "track_type_rule": (
             "首字母轨距：S=1435mm，B=1520mm，D=套轨，N=1067/1000mm，n=762/600mm；"
             "第 2 位速度等级 A…G；第 3 位轴重等级 A…E；末位电气化："

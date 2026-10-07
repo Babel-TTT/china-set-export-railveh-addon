@@ -10,3 +10,5 @@
 // One file per vehicle, grouped by kind.  The order of the includes is
 // the order the vehicles appear in the purchase menu.
 
+// Locomotives/Diesel
+#include "diesel/df4c.pnml"

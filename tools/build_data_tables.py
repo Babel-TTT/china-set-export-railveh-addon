@@ -74,7 +74,8 @@ VEHICLE_TABLES = ("locomotives.csv", "coaches.csv", "wagons.csv", "unit_wagons.c
 # by genpnml.py -- in particular `capacity_by_cargo` and `train_flags` used to be
 # missing from the header, so the generator silently never saw them.
 VEHICLE_COLUMNS = (
-    "id", "name_string", "category", "folder", "model", "parts", "power_section",
+    "id", "name_string", "category", "folder", "parts", "power_section",
+    "graphics_parts",
     "intro_year", "intro_month", "intro_day", "model_life", "retire_early",
     "vehicle_life", "track_type", "climates_available", "speed", "power",
     "power_unit", "weight", "tractive_effort_coefficient", "cost_factor",
@@ -86,6 +87,10 @@ VEHICLE_COLUMNS = (
     "ac_supply", "airconditioned", "restaurant", "mu", "name_callback",
     "wagon_decay", "additional_text", "comment",
 )
+
+# Every vehicle is three sections now; the ``model`` column is gone.  These are
+# the end section lengths, which are the same for every vehicle.
+END_SECTION = 2
 
 
 def write_liveries(path):

@@ -55,9 +55,9 @@ works too but then the cell has to be quoted.
 | `name_string` | the name shown in the depot.  A plain name such as `CKD4A (Export)` is mapped onto `STR_NAME_<ID>` by the generator, so the translation lives in `docs/str.csv`. |
 | `category` | which ID band and engine class to use.  One of `steam`, `diesel`, `electric`, `multipower`, `1500v_dc`, `dmu`, `emu`, `1500_emu`, `750_emu`, `third_emu`, `multi_mu`, `mono_mu`, `mglv_mu`, `cargo_dmu`, `cargo_emu`, `multi_cargo_mu`.  Ignored in `coaches.csv`, `wagons.csv` and `unit_wagons.csv`, where it is implied. |
 | `folder` | sub folder of `gfx/` holding the model, and the first argument of the sprite templates. |
-| `model` | `single` for a one piece vehicle, `triple` for a vehicle that is repeated by the articulated parts callback (the usual case: all stock is 2-<body>-2 in OpenTTD terms). |
-| `parts` | section lengths, `\|` separated, e.g. `2\|8\|2`.  For `model=single` only the first value is used. |
-| `power_section` | index of the section that carries the body sprite, the power and the capacity. |
+| `parts` | the three section lengths, `\|` separated: `<short>\|<body>\|<short>`, normally `2\|8\|2`.  The two short sections exist only to make the vehicle fit the track; the middle one carries the body sprite, the power and the load. |
+| `power_section` | index of the section that carries the body sprite, the power and the capacity.  `1` for the standard three section layout. |
+| `graphics_parts` | optional per section sprite rules; see [per section graphics](#per-section-graphics).  Leave empty and only the body section draws, the ends stay invisible. |
 | `intro_year`, `intro_month`, `intro_day` | introduction date. |
 | `model_life` | `VEHICLE_NEVER_EXPIRES` or a number of years. |
 | `retire_early` | years of early retirement, or empty. |
@@ -142,8 +142,58 @@ This is the pattern China Set: Trains and JPengines both use, for example
 * Single section stock (`model=single`) gets the callback too, with
   `position_in_articulated_veh % 1`.
 
-## `liveries.csv`
+## Per section graphics
 
+Every vehicle is three sections, so the two short ends are normally invisible
+and only `power_section` draws.  `graphics_parts` lets a section pick its sprite
+from **where the car sits in the whole train**, which is how a real EMU set is
+built: the cab cars at either end, the pantograph car in the middle, and so on.
+
+The cell is split into one piece per section with `;`, and each piece into rules
+with `|`.  A rule is either `condition=basename` or a bare `basename`, which is
+the fallback used when no condition matched.  Rules are tried in order, so the
+bare basename belongs last.
+
+```
+graphics_parts=consist <= 9=emu_face_s | emu_face_l;emu_body;consist <= 9=emu_face_s | emu_face_l
+```
+
+That reads: the front and rear sections show the small face on a train of up to
+nine parts and the large one otherwise, and the middle section is always the
+body.
+
+| variable | means |
+| -------- | ----- |
+| `pos` | `position_in_consist` — which vehicle part this is, counting from the front |
+| `tailpos` | `position_in_consist_from_end` — the same counting from the rear |
+| `consist` | `num_vehs_in_consist` — how many parts the whole train has |
+| `unitpos` | `position_in_articulated_veh` — which section of *this* car it is |
+
+Each condition must be a simple comparison of one variable with a number:
+`consist <= 9`, `pos == 0`, `tailpos >= 3`, `unitpos == 1`.  Operators are
+`==`, `<`, `<=`, `>`, `>=`.
+
+**Why the conditions are so plain.**  NewGRF only exposes these variables as the
+*selector* of a switch, never inside a condition.  Writing
+`switch (..., 1) { num_vehs_in_consist <= 9: ... }` makes nmlc stop with
+`Unrecognized identifier`.  The generator therefore compiles each distinct
+variable into one selector level and nests them, exactly the way China Set:
+Trains writes its EMUs by hand:
+
+```
+switch (FEAT_TRAINS, SELF, switch_<id>_..._s0, num_vehs_in_consist) {
+    0..9: return spriteset_<id>_gfx_emu_face_s;
+    return spriteset_<id>_gfx_emu_face_l;     // the next rule
+}
+```
+
+So an arithmetic condition such as `pos / 3 == 1` is refused with an explanation
+instead of producing code nmlc rejects.  Use `pos == 3` or rearrange the rules.
+
+Every basename named here gets a placeholder `.vox` like any other, so the
+project keeps building before the artwork exists.
+
+## `liveries.csv`
 | column | meaning |
 | ------ | ------- |
 | `id` | vehicle the scheme belongs to. |

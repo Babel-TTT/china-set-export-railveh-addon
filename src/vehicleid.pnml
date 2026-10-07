@@ -24,6 +24,7 @@
 
 //Diesel, available ID range: 5120-6143 (hex 0x1400..0x17FF)
 #define id_range_diesel 0x1400..0x17FF
+item (FEAT_TRAINS, df4c, 5120) {}
 
 //25kV AC Electric, available ID range: 6144-7167 (hex 0x1800..0x1BFF)
 #define id_range_electric 0x1800..0x1BFF

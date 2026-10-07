@@ -335,6 +335,8 @@ class Vehicle:
     # mechanical / graphical
     parts: List[int] = field(default_factory=lambda: [2, 4, 2])
     power_section: int = 0
+    # one rule list per section; see parse_graphics_parts()
+    graphics_parts: List[List[Tuple[str, str]]] = field(default_factory=list)
     ac_supply: bool = False
     airconditioned: bool = False
     restaurant: bool = False
@@ -485,12 +487,17 @@ def _build_vehicle(
     if power_section >= len(parts):
         power_section = len(parts) - 1
 
-    model = (row.get("model", "") or "").strip().lower()
-    if not model:
-        model = "triple" if len(parts) > 1 else "single"
-    if model == "single":
-        # a single section vehicle is one sprite, the length switch is omitted
-        parts = [parts[0]] if parts else [4]
+    model = (row.get("model", "") or "triple").strip().lower()
+
+    # Every vehicle is three sections: the two short ones at the ends exist
+    # only to make the vehicle fit the track, and the middle one carries the
+    # body sprite and the load.  There is no single section model any more.
+    if model != "triple":
+        raise ValueError(
+            "%s: model 只能是 triple（每台车固定为 2 + 车身 + 2 三段），"
+            "当前是 %r" % (vehicle_id, model))
+
+    graphics_parts = parse_graphics_parts(row.get("graphics_parts", ""), len(parts))
 
     vehicle = Vehicle(
         id=vehicle_id,
@@ -531,6 +538,7 @@ def _build_vehicle(
         wagon_decay=_bool(row.get("wagon_decay", ""), category in ("wagon",)),
         parts=parts,
         power_section=power_section,
+        graphics_parts=graphics_parts,
         ac_supply=_bool(row.get("ac_supply", ""), False),
         airconditioned=_bool(row.get("airconditioned", ""), False),
         restaurant=_bool(row.get("restaurant", ""), False),
@@ -774,6 +782,12 @@ def emit_vehicle(sprites: Emitter, switches: Emitter, items: Emitter,
                 variant.template,
             )
 
+    # graphics_parts: one spriteset per basename the column names, so a section
+    # can show artwork of its own.
+    for basename in graphics_rule_basenames(vehicle.graphics_parts):
+        define_spriteset(_graphics_part_spriteset(vehicle, basename), basename,
+                         _graphics_part_template(vehicle, basename))
+
     # ---- cargo appearance chain (freight wagons) ----------------------
     cargo_root: Optional[str] = None
     if vehicle.cargo_variants:
@@ -801,10 +815,21 @@ def emit_vehicle(sprites: Emitter, switches: Emitter, items: Emitter,
     else:
         livery_cases = [(str(livery.index), _livery_spriteset_name(vehicle, livery))
                         for livery in vehicle.liveries]
+    # The plain per-livery graphics, one entry per livery index.  These stay the
+    # fallback of every graphics_parts rule, so refitting keeps working.
+    livery_roots: Dict[int, str] = {}
+    for index, root in livery_cases:
+        livery_roots[int(index)] = root
     livery_root = _emit_livery_switch(switches, vehicle, livery_cases, cargo_root)
 
-    # ---- graphics dispatch by articulated part ------------------------
-    if vehicle.is_articulated:
+    # ---- graphics dispatch ---------------------------------------------
+    # graphics_parts names a sprite per section, chosen by the section's place
+    # in the whole train; without it the body section keeps the livery graphic
+    # and the other sections stay invisible.
+    parts_root = _emit_graphics_parts(switches, vehicle, livery_roots)
+    if parts_root:
+        default_graphics = parts_root
+    elif vehicle.is_articulated:
         graphics_switch = "switch_%s_graphics" % vid
         switches.switch(
             graphics_switch,
@@ -1422,7 +1447,267 @@ def collect_sprite_basenames(vehicle: Vehicle) -> List[Tuple[str, int]]:
             if livery.suffix:
                 add(_cargo_basename(variant, livery),
                     _colour_for_suffix(variant.suffix, base_colour))
+    for basename in graphics_rule_basenames(vehicle.graphics_parts):
+        add(basename, _colour_for_suffix(basename, base_colour))
     return wanted
+
+
+# --------------------------------------------------------------------------
+# graphics_parts: which sprite a section shows, decided by its place in the
+# whole train rather than by its place inside the vehicle
+# --------------------------------------------------------------------------
+
+# The table writes conditions in a small, lowercase language.  This is the
+# translation into NML, so nobody has to remember the exact NewGRF variable
+# names.  Condition text is otherwise passed through unchanged, which means the
+# full NML expression language stays available.
+GRAPHICS_VARIABLES = {
+    "pos": "position_in_consist",
+    "tailpos": "position_in_consist_from_end",
+    "consist": "num_vehs_in_consist",
+    "unitpos": "position_in_articulated_veh",
+}
+
+
+CONSIST_VARIABLES = ("position_in_consist", "position_in_consist_from_end",
+                     "num_vehs_in_consist", "position_in_articulated_veh")
+
+
+class GraphicsPartsError(ValueError):
+    """A graphics_parts cell that cannot be turned into NML."""
+
+
+def graphics_condition(text: str) -> str:
+    """Translate one condition from the table language into NML.
+
+    ``pos % 3`` becomes ``position_in_consist % 3``.  Everything else is passed
+    through, so the whole NML expression language is available.  ``pos`` and
+    ``tailpos`` count vehicle parts, exactly like ``position_in_consist``, so
+    the Nth car of a three part vehicle is ``pos / 3``.
+    """
+    translated = re.sub(
+        r"\b(" + "|".join(GRAPHICS_VARIABLES) + r")\b",
+        lambda match: GRAPHICS_VARIABLES[match.group(1)],
+        text,
+    )
+    remainder = re.sub(r"\b(position_in_\w+|num_vehs_in_\w+)\b", "", translated)
+    if not re.fullmatch(r"[0-9\s()%+\-*/<>=!&|.]*", remainder):
+        raise GraphicsPartsError(
+            "无法识别的条件片段 %r；可用变量：%s"
+            % (text.strip(), ", ".join(sorted(GRAPHICS_VARIABLES))))
+    return translated.strip()
+
+
+def predicate_selector(text: str):
+    """Turn one condition into a (selector, case) pair, or fail with advice.
+
+    NewGRF only exposes consist variables as the *selector* of a switch: writing
+    ``switch (..., 1) { num_vehs_in_consist < 3: ... }`` is rejected by nmlc
+    with "Unrecognized identifier".  A condition therefore has to be a simple
+    test on one variable, which becomes the selector, plus the comparison that
+    becomes the case.  Anything more elaborate is refused here rather than
+    compiled into something nmlc will not accept.
+    """
+    expression = graphics_condition(text)
+    if "|" in expression or "&" in expression:
+        raise GraphicsPartsError(
+            "条件 %r 含 & 或 |；编组变量只能作为开关的选择器，"
+            "请拆成多条规则（用 | 分隔）让生成器嵌套开关" % text.strip())
+    if "!" in expression:
+        raise GraphicsPartsError("条件 %r 不支持取反，请改用相反的比较" % text.strip())
+
+    parts = re.findall(r"[A-Za-z_][A-Za-z0-9_]*|\d+", expression)
+    used = [name for name in parts if name in CONSIST_VARIABLES]
+    if len(set(used)) > 1:
+        raise GraphicsPartsError(
+            "条件 %r 同时用了 %s；一个条件只能比较一个变量，"
+            "请拆成多条规则" % (text.strip(), " 和 ".join(sorted(set(used)))))
+    if not used:
+        raise GraphicsPartsError(
+            "条件 %r 没有用到任何编组变量（pos/tailpos/consist/unitpos）" % text.strip())
+    selector = used[0]
+
+    # normalise "consist<=9", "consist <= 9" and "consist  <=  9" to one shape
+    normalised = re.sub(r"\s*(==|!=|<=|>=|<|>)\s*", r" \1 ", expression).strip()
+    for operator in ("==", "!=", "<=", ">=", "<", ">"):
+        match = re.fullmatch(
+            r"%s\s+([0-9]+)" % re.escape(selector + " " + operator), normalised)
+        if not match:
+            continue
+        number = int(match.group(1))
+        if operator == "==":
+            return selector, str(number)
+        if operator == "!=":
+            raise GraphicsPartsError("条件 %r 不支持 !=，请改用两个区间规则" % text.strip())
+        if operator == "<":
+            low, high = 0, number - 1
+        elif operator == "<=":
+            low, high = 0, number
+        elif operator == ">":
+            low, high = number + 1, 255
+        else:
+            low, high = number, 255
+        if high < low:
+            raise GraphicsPartsError("条件 %r 永远不成立" % text.strip())
+        return selector, "%d..%d" % (low, high)
+
+    raise GraphicsPartsError(
+        "条件 %r 不受支持。一个条件只能是“变量 比较 数字”的简单形式，例如 "
+        "consist <= 9、pos == 0、tailpos >= 3、unitpos == 1；"
+        "不支持算式（如 pos / 3）。同一段里需要多个条件时请写多条规则，"
+        "生成器会把它们编成嵌套开关" % text.strip())
+
+
+def parse_graphics_parts(text: str, part_count: int) -> List[List[Tuple[str, str]]]:
+    """Parse a ``graphics_parts`` cell into one rule list per section.
+
+    The cell is split on ``;`` -- one piece per section -- and each piece on
+    ``|``.  A rule inside a piece is either ``condition=basename`` or a bare
+    ``basename``, the latter being the fallback used when nothing matched.
+    Rules are tried in order and an empty condition always matches, so such a
+    rule ends the list for that section.
+    """
+    text = (text or "").strip()
+    if not text:
+        return []
+    sections = [piece.strip() for piece in text.split(";")]
+    if len(sections) != part_count:
+        raise GraphicsPartsError(
+            "graphics_parts 需要 %d 段（与 parts 相同），当前 %d 段"
+            % (part_count, len(sections)))
+    parsed: List[List[Tuple[str, str]]] = []
+    for index, piece in enumerate(sections):
+        rules: List[Tuple[str, str]] = []
+        for raw in piece.split("|"):
+            rule = raw.strip()
+            if not rule:
+                continue
+            if "=" in rule:
+                # a condition may itself contain '=' (>=, <=, ==), so the
+                # basename is what follows the *last* one
+                condition, _, basename = rule.rpartition("=")
+                condition = condition.strip()
+                if not condition:
+                    raise GraphicsPartsError(
+                        "第 %d 段的 %r 缺少 = 左边的条件" % (index + 1, rule))
+            else:
+                condition = ""
+                basename = rule
+            basename = basename.strip()
+            if not basename:
+                raise GraphicsPartsError("第 %d 段的 %r 缺少贴图基名" % (index + 1, rule))
+            if not re.fullmatch(r"[a-z0-9_]+", basename):
+                raise GraphicsPartsError(
+                    "贴图基名 %r 只能用小写字母、数字和下划线" % basename)
+            rules.append((condition, basename))
+        if not rules:
+            raise GraphicsPartsError("第 %d 段没有任何规则" % (index + 1))
+        parsed.append(rules)
+    return parsed
+
+
+def graphics_rule_basenames(rules: List[List[Tuple[str, str]]]) -> List[str]:
+    """Every basename a parsed graphics_parts list refers to, in order."""
+    seen: List[str] = []
+    for section in rules:
+        for _condition, basename in section:
+            if basename not in seen:
+                seen.append(basename)
+    return seen
+
+
+def emit_graphics_rules(switches: "Emitter", vehicle: Vehicle, prefix: str,
+                        rules: List[Tuple[str, str]], fallback: str,
+                        selectors: Tuple[str, ...] = ()) -> str:
+    """Compile one section's rules into a nest of switches.
+
+    NewGRF only exposes consist variables as a switch *selector*, never inside a
+    condition, so a rule written as ``consist <= 9=face_s`` cannot become
+    ``switch (..., 1) { num_vehs_in_consist <= 9: ... }``.  Instead the rules
+    are compiled the way China Set: Trains writes them by hand: each distinct
+    variable becomes one selector level, the comparison becomes the case, and
+    the branches are chained by nesting.  ``selectors`` carries the variables
+    already used on the way down.
+    """
+    if not rules:
+        return fallback
+
+    condition, basename = rules[0]
+    here = _graphics_part_spriteset(vehicle, basename)
+    rest = rules[1:]
+
+    if not condition:
+        # a bare basename is the fallback of this section
+        return here
+
+    selector, case = predicate_selector(condition)
+    if selector in selectors:
+        raise GraphicsPartsError(
+            "同一段里重复使用了 %s；请把两条规则合并成一个区间" % selector)
+    name = "switch_%s_s%d" % (prefix, len(selectors))
+
+    following = emit_graphics_rules(switches, vehicle, prefix, rest, fallback,
+                                    selectors + (selector,))
+    switches.switch(name, selector, [(case, "return %s" % here)],
+                    "return %s" % following)
+    return name
+
+
+def _graphics_part_spriteset(vehicle: Vehicle, basename: str) -> str:
+    """Spriteset name for one basename named by the ``graphics_parts`` column."""
+    return "spriteset_%s_gfx_%s" % (vehicle.id, basename)
+
+
+def _graphics_part_template(vehicle: Vehicle, basename: str) -> str:
+    """The template a graphics_parts basename is drawn with.
+
+    A livery may name a template per section; when the basename being drawn is
+    one of that livery's own basenames, that livery's first template is used so
+    that ``template_speciel_0`` style artwork keeps working.  Anything else
+    falls back to the vehicle's standard template.
+    """
+    for livery in vehicle.liveries:
+        if _livery_basename(vehicle, livery) == basename and livery.templates:
+            return livery.template_for(0, vehicle.part_count)
+    if vehicle.liveries and vehicle.liveries[0].templates:
+        return vehicle.liveries[0].template_for(0, vehicle.part_count)
+    return "template_standard"
+
+
+def _emit_graphics_parts(switches: "Emitter", vehicle: Vehicle,
+                         livery_roots: Dict[int, str]) -> Optional[str]:
+    """Build ``switch_<id>_graphics`` from the ``graphics_parts`` column.
+
+    Each section gets a chain of switches: the first rule whose condition holds
+    picks the sprite, and a section with no match keeps the normal livery
+    graphics.  With more than one livery the whole dispatch is wrapped in a
+    ``cargo_subtype`` switch so refitting still changes the paint, and the
+    livery the table lists first stays the default.
+    """
+    if not vehicle.graphics_parts:
+        return None
+    vid = vehicle.id
+
+    per_livery: List[Tuple[str, str]] = []
+    for index in sorted(livery_roots):
+        fallback = livery_roots[index]
+        targets: List[str] = []
+        for position, rules in enumerate(vehicle.graphics_parts):
+            prefix = "%s_%d_%d" % (vid, index, position)
+            targets.append(emit_graphics_rules(switches, vehicle, prefix, rules, fallback))
+        switch = "switch_%s_section_%d" % (vid, index)
+        switches.switch(switch,
+                        f"position_in_articulated_veh % {vehicle.part_count}",
+                        [(str(position), target)
+                         for position, target in enumerate(targets)],
+                        "empty_sprites;")
+        per_livery.append((str(index), switch))
+
+    if len(per_livery) == 1:
+        return per_livery[0][1]
+    switch = "switch_%s_graphics" % vid
+    switches.switch(switch, "cargo_subtype", per_livery, per_livery[0][1])
+    return switch
 
 
 # --------------------------------------------------------------------------

@@ -239,16 +239,14 @@ def validate_vehicle_row(table: str, row: dict, others, is_new: bool):
     if not (row.get("name_string") or "").strip():
         errors.append("name_string 不能为空")
 
-    model = (row.get("model") or "").strip()
-    if model and model not in ("single", "triple"):
-        errors.append("model 只能是 single 或 triple，当前是 %r" % model)
-
     parts = [piece for piece in re.split(r"[|,]", row.get("parts") or "") if piece.strip()]
     for piece in parts:
         if not piece.strip().isdigit() or int(piece) <= 0:
             errors.append("parts 只能是正整数，用 | 分隔：%r" % piece.strip())
-    if model == "triple" and len(parts) < 3:
-        errors.append("model=triple 需要至少三段，例如 2|8|2（当前 %d 段）" % len(parts))
+    # every vehicle is three sections: 2 + body + 2
+    if len(parts) != 3:
+        errors.append("每台车固定为三段（2 + 车身 + 2），当前 %d 段：%r"
+                      % (len(parts), row.get("parts", "")))
     power_section = (row.get("power_section") or "").strip()
     if power_section:
         if not power_section.isdigit():
@@ -284,6 +282,19 @@ def validate_vehicle_row(table: str, row: dict, others, is_new: bool):
         known = schema_module.railtype_labels()
         if known and track not in known:
             errors.append("track_type %r 不在 src/railtypetable.pnml 中" % track)
+
+    # graphics_parts is compiled into NML switches, so a broken cell would only
+    # surface as an nmlc syntax error much later; parse it the same way the
+    # generator does and report the reason now.
+    graphics_parts = (row.get("graphics_parts") or "").strip()
+    if graphics_parts:
+        try:
+            import genpnml
+            genpnml.parse_graphics_parts(graphics_parts, len(parts) or 3)
+        except ImportError:
+            pass
+        except ValueError as error:
+            errors.append("graphics_parts：%s" % error)
 
     if is_new:
         for other in others:
