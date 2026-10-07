@@ -477,18 +477,55 @@
       container.innerHTML = [...groups.entries()].map(([id, groupRows]) =>
         `<div class="aux-group"><div class="aux-head"><b>${esc(id)}</b>
           <span class="hint">${groupRows.length} 行</span></div>
-          <div class="aux-rows">${groupRows.map((row, index) =>
-            `<div class="aux-row" data-table="${esc(config.table)}"
+          <div class="aux-rows">${groupRows.map((row, index) => {
+            const resolved = stringContent(row.string);
+            return `<div class="aux-row" data-table="${esc(config.table)}"
                 data-key="${esc(config.keys(row))}">
               <span class="idx">#${index}</span>
               ${config.fields().filter((field) => field.name in row).map((field) =>
-                `<div class="field"><label>${esc(field.label)}</label>
-                  <input data-field="${esc(field.name)}" value="${esc(row[field.name] ?? '')}"
-                    placeholder="${esc(field.placeholder)}"
-                    title="${esc(field.help || '')}"></div>`).join('')}
+                field.name === 'string'
+                  ? `<div class="field"><label>${esc(field.label)}</label>
+                      <select data-field="string" data-strings="1"
+                        title="${esc(field.help || '')}">${stringOptions(row[field.name])}</select>
+                      <div class="help" data-resolved="1">${
+                        resolved || '<span class="bad">这个字符串不在 docs/str.csv 里，编译会失败</span>'
+                      }</div></div>`
+                  : `<div class="field"><label>${esc(field.label)}</label>
+                      <input data-field="${esc(field.name)}" value="${esc(row[field.name] ?? '')}"
+                        placeholder="${esc(field.placeholder)}"
+                        title="${esc(field.help || '')}"></div>`).join('')}
               <button class="danger" data-aux-delete="1">删除</button>
-            </div>`).join('')}</div></div>`).join('');
+            </div>`;
+          }).join('')}</div></div>`).join('');
     }
+  }
+
+  /** The text a string constant resolves to, for display next to the field. */
+  function stringContent(constant) {
+    const name = (constant || '').trim();
+    if (!name) return '';
+    const entry = (state.strings || []).find((item) => item.constant === name);
+    if (!entry) return '';
+    const parts = [];
+    if (entry.chinese) parts.push(entry.chinese);
+    if (entry.english && entry.english !== entry.chinese) parts.push(entry.english);
+    return parts.map((text) => esc(text)).join(' <span class="unit">/</span> ');
+  }
+
+  /** Every string the language table defines, constants the table already uses
+   * first, so a livery can be pointed at a label without leaving the page. */
+  function stringOptions(current) {
+    const known = (state.strings || []);
+    const value = (current || '').trim();
+    const options = ['<option value=""></option>'].concat(known.map((entry) => {
+      const label = entry.chinese || entry.english || '';
+      return `<option value="${esc(entry.constant)}"${entry.constant === value ? ' selected' : ''
+        }>${esc(entry.constant)}${label ? ' · ' + esc(label) : ''}</option>`;
+    }));
+    if (value && !known.some((entry) => entry.constant === value)) {
+      options.push(`<option value="${esc(value)}" selected>${esc(value)}（不在字符串表中）</option>`);
+    }
+    return options.join('');
   }
 
   async function saveAuxRow(table, key, container) {
@@ -915,10 +952,17 @@
 
     document.addEventListener('change', (event) => {
       const input = event.target.closest('.aux-row [data-field]');
-      if (input) {
-        const row = input.closest('.aux-row');
-        saveAuxRow(row.dataset.table, row.dataset.key, row);
+      if (!input) return;
+      const row = input.closest('.aux-row');
+      if (input.dataset.strings) {
+        // show the new text straight away, then persist the row
+        const note = row.querySelector('[data-resolved]');
+        if (note) {
+          note.innerHTML = stringContent(input.value)
+            || '<span class="bad">这个字符串不在 docs/str.csv 里，编译会失败</span>';
+        }
       }
+      saveAuxRow(row.dataset.table, row.dataset.key, row);
     });
   }
 
@@ -928,6 +972,13 @@
     } catch (error) {
       setStatus('无法读取 schema：' + error.message, 'error');
       return;
+    }
+    try {
+      // the language table is what turns a livery's STR_ constant into text
+      const table = await jsonFetch('/strings');
+      state.strings = table.strings || [];
+    } catch (error) {
+      state.strings = [];
     }
     $('fleetTable').innerHTML = '<option value="">全部表</option>'
       + state.schema.tables.map((table) =>

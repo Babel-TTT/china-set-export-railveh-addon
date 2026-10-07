@@ -508,6 +508,27 @@ def sprite_basenames() -> dict:
     return vehicles
 
 
+def string_table_rows() -> list:
+    """Every row of docs/str.csv as {constant, english, chinese}.
+
+    The livery and cargo tables refer to a string by its constant, which says
+    nothing about the text the player will read.  Publishing the table lets the
+    workbench show the resolved text next to the field.
+    """
+    rows = []
+    if not LANG_CSV.is_file():
+        return rows
+    with LANG_CSV.open(encoding="utf-8-sig", newline="") as handle:
+        for row in csv.reader(handle):
+            if not row or not row[0].strip() or row[0].lstrip().startswith("#"):
+                continue
+            cells = list(row) + ["", ""]
+            rows.append({"constant": cells[0].strip(),
+                         "english": cells[1].strip(),
+                         "chinese": cells[2].strip()})
+    return rows
+
+
 def language_strings() -> set:
     """Every STR_ key defined in docs/str.csv."""
     keys = set()
@@ -1002,6 +1023,9 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
         try:
             if parsed.path == "/api/schema":
                 self.send_json(schema_module.payload())
+                return
+            if parsed.path == "/api/strings":
+                self.send_json({"ok": True, "strings": string_table_rows()})
                 return
             if parsed.path == "/api/state":
                 self.send_json(build_state())

@@ -49,6 +49,7 @@ aside.right { border-left: 1px solid var(--line); }
   letter-spacing: .12em; text-transform: uppercase; }
 .section-title .hint { text-transform: none; letter-spacing: 0; font-weight: 400; }
 .hint { color: var(--muted); font-size: 12px; }
+.bad { color: var(--red); }
 .small { font-size: 12px; }
 .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
 .hidden { display: none !important; }
