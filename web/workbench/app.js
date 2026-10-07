@@ -320,11 +320,9 @@
         <div class="field"><label>类别（仅机车表生效）</label>
           <select id="n_category">${categories.map((category) =>
             `<option value="${esc(category)}"${category === 'diesel' ? ' selected' : ''}>${esc(category)}</option>`).join('')}</select></div>
-        <div class="field"><label>模型类型</label>
-          <select id="n_model"><option value="triple" selected>triple（前-身-后）</option>
-            <option value="single">single（一体）</option></select></div>
       </div>
-      <p class="hint">创建后可在「车辆明细」里补齐其余列。ID 段由所在表与类别决定，不用手填。</p>
+      <p class="hint">每台车固定为 <span class="mono">2 + 车身 + 2</span> 三段，车身长度在「车辆明细」里用
+      <span class="mono">parts</span> 改。创建后可在明细里补齐其余列。ID 段由所在表与类别决定，不用手填。</p>
     `, async () => {
       const table = $('n_table').value;
       const id = ($('n_id').value || '').trim().toLowerCase();
@@ -340,7 +338,6 @@
           row[field.name] = String(field.default);
         }
       }
-      row.model = $('n_model').value;
       try {
         const result = await jsonFetch('/save', {
           method: 'POST',
