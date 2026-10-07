@@ -1,0 +1,42 @@
+# China Set: Export Rail Vehicles Add-on -- livery table
+#
+# One row per paint scheme.  The row order for one vehicle defines the
+# livery index used by the refit menu: index 0 is the automatic choice
+# and switches on build_year, index 1+ can be picked explicitly.
+# A vehicle with no row here gets one default livery whose sprite
+# basename is just its id.
+# See data/README.md for the column reference.
+#
+id,sprite_suffix,string,from_year,to_year,purchase_suffix,templates
+ckd4a,,STR_BUILD_YEAR,0,9999,,
+
+ckd8f,,STR_BUILD_YEAR,0,9999,,
+ckd8f,exblue,STR_EXPORT_BLUE,2010,9999,,
+
+hxd1ex,,STR_BUILD_YEAR,0,9999,,
+hxd1ex,exblue,STR_EXPORT_BLUE,2012,9999,,
+
+hxd2ex,,STR_BUILD_YEAR,0,9999,,
+hxd2ex,exblue,STR_EXPORT_BLUE,2012,9999,,
+
+hxd3ex,,STR_BUILD_YEAR,0,9999,,
+hxd3ex,exblue,STR_EXPORT_BLUE,2011,9999,,
+
+ss8ex,,STR_BUILD_YEAR,0,9999,,
+ss8ex,exblue,STR_EXPORT_BLUE,2003,9999,,
+
+df4bex,,STR_BUILD_YEAR,0,9999,,
+df4bex,dprk,STR_DPRK_LIVERY,0,9999,,
+df4bex,ukraine,STR_UKRAINE_LIVERY,0,9999,,
+
+yz25tex,,STR_BUILD_YEAR,0,9999,,
+yz25tex,green,STR_EXPORT_GREEN,2015,9999,,
+
+yw25tex,,STR_BUILD_YEAR,0,9999,,
+yw25tex,green,STR_EXPORT_GREEN,2015,9999,,
+
+rw25tex,,STR_BUILD_YEAR,0,9999,,
+rw25tex,green,STR_EXPORT_GREEN,2015,9999,,
+
+c70ex,,STR_BUILD_YEAR,0,9999,,
+c70ex,gray,STR_EXPORT_GRAY,0,9999,,

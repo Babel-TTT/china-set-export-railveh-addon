@@ -1,0 +1,149 @@
+/* ==========================================================================
+ *  China Set: Export Rail Vehicles Add-on
+ *  src/header.pnml -- GRF header, parameters and global settings
+ *
+ *  This add-on follows the very same skeleton and conventions as
+ *  China Set: Trains (chinasettrains) and China Set: Narrow Gauge Add-on.
+ * ========================================================================== */
+
+grf {
+    grfid:   "\5F\5F\03\01";
+    name:    string(STR_GRF_NAME);
+    desc:    string(STR_DESC_4, string(STR_GRF_DESC), string(STR_GRF_DESC_EXTRA), string(STR_GRF_DESC_README), string(STR_GRF_DESC_4));
+    url:     string(STR_GRF_URL);
+    version: REPO_REVISION;
+    min_compatible_version: MIN_COMPATIBLE_VERSION;
+
+    param 0 {
+        param_loading_speed {
+            type: int;
+            name: string(STR_PARAM_LOADING_SPEED);
+            desc: string(STR_PARAM_LOADING_SPEED_DESC);
+            min_value: 0;
+            max_value: 3;
+            def_value: 1;
+            names: {
+                0: string(STR_PARAM_DIVIDE_2);
+                1: string(STR_PARAM_NORMAL);
+                2: string(STR_PARAM_TIMES_2);
+                3: string(STR_PARAM_TIMES_4);
+            };
+        }
+    }
+    param 1 {
+        param_purchase_cost {
+            type: int;
+            name: string(STR_PARAM_PURCHASE_COST);
+            desc: string(STR_PARAM_PURCHASE_COST_DESC);
+            min_value: 0;
+            max_value: 8;
+            def_value: 2;
+            names: {
+                0: string(STR_PARAM_DIVIDE_16);
+                1: string(STR_PARAM_DIVIDE_8);
+                2: string(STR_PARAM_DIVIDE_4);
+                3: string(STR_PARAM_DIVIDE_2);
+                4: string(STR_PARAM_NORMAL);
+                5: string(STR_PARAM_TIMES_2);
+                6: string(STR_PARAM_TIMES_4);
+                7: string(STR_PARAM_TIMES_8);
+                8: string(STR_PARAM_TIMES_16);
+            };
+        }
+    }
+    param 2 {
+        param_running_cost {
+            type: int;
+            name: string(STR_PARAM_RUNNING_COST);
+            desc: string(STR_PARAM_RUNNING_COST_DESC);
+            min_value: 0;
+            max_value: 8;
+            def_value: 2;
+            names: {
+                0: string(STR_PARAM_DIVIDE_16);
+                1: string(STR_PARAM_DIVIDE_8);
+                2: string(STR_PARAM_DIVIDE_4);
+                3: string(STR_PARAM_DIVIDE_2);
+                4: string(STR_PARAM_NORMAL);
+                5: string(STR_PARAM_TIMES_2);
+                6: string(STR_PARAM_TIMES_4);
+                7: string(STR_PARAM_TIMES_8);
+                8: string(STR_PARAM_TIMES_16);
+            };
+        }
+    }
+    param 3 {
+        param_cargo_decay {
+            type: int;
+            name: string(STR_PARAM_CARGO_DECAY);
+            desc: string(STR_PARAM_CARGO_DECAY_DESC);
+            min_value: 0;
+            max_value: 2;
+            def_value: 0;
+            names: {
+                0: string(STR_PARAM_NORMAL);
+                1: string(STR_PARAM_TIMES_2);
+                2: string(STR_PARAM_TIMES_4);
+            };
+        }
+    }
+    param 4 {
+        param_wagoncargodecay {
+            name: string(STR_PARAM_WAGON_CARGO_DECAY);
+            desc: string(STR_PARAM_WAGON_CARGO_DECAY_DESC);
+            type: int;
+            min_value: 0;
+            max_value: 2;
+            def_value: 0;
+            names: {
+                0: string(STR_PARAM_NORMAL);
+                1: string(STR_PARAM_TIMES_2);
+                2: string(STR_PARAM_TIMES_4);
+            };
+        }
+    }
+    param 5 {
+        param_export_livery {
+            name: string(STR_PARAM_EXPORT_LIVERY);
+            desc: string(STR_PARAM_EXPORT_LIVERY_DESC);
+            type: bool;
+            bit:  0;
+            def_value: 1;
+        }
+    }
+}
+
+/* Base costs.  Export stock is priced from the same base as China Set: Trains
+ * so that a mixed consist behaves consistently. */
+basecost {
+    PR_BUILD_VEHICLE_TRAIN: param_purchase_cost - 3;
+    PR_BUILD_VEHICLE_WAGON: param_purchase_cost + 1;
+    PR_RUNNING_TRAIN_STEAM: param_running_cost  - 4;
+    PR_RUNNING_TRAIN_DIESEL: param_running_cost  - 4;
+    PR_RUNNING_TRAIN_ELECTRIC: param_running_cost  - 4;
+}
+
+/* disable the original trains, this add-on is a full replacement set */
+disable_item(FEAT_TRAINS, 0, 115);
+
+/* only OpenTTD is supported, not enforced though */
+if (ttd_platform != PLATFORM_OPENTTD) {
+    //requires OpenTTD
+    error(FATAL, USED_WITH, "OpenTTD");
+}
+else {
+    if (openttd_version < version_openttd(13, 1)) {
+        //requires OpenTTD 13.1 or later since the introduction of variants and name callbacks.
+        error(FATAL, REQUIRES_OPENTTD, "13.1");
+    }
+}
+
+//check if dynamic_engines is enabled
+if (dynamic_engines == 0) {
+ //Required dynamic_engines to load all vehicles
+ error(FATAL, USED_WITH, string(STR_USED_WITH_DYNAMIC_ENGINES));
+}
+
+/* fix depot view */
+train_width_32_px = 1;
+traininfo_y_offset = 2;

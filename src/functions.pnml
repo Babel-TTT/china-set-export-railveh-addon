@@ -1,0 +1,209 @@
+/* ==========================================================================
+ *  China Set: Export Rail Vehicles Add-on
+ *  src/functions.pnml -- shared switch helpers
+ *
+ *  Everything in here is referenced by the generated vehicle files, so the
+ *  generator can emit plain switch/spriteset chains and stay simple.
+ *
+ *  BITMASK SHEET (bitmask_vehicle_info)
+ *    bitmask(0): to return error consists
+ *    bitmask(1): restaurant car
+ *    bitmask(2): air condition generator car
+ *    bitmask(3): conductor car
+ *    bitmask(4): brake van
+ *
+ *  ID RANGES (must match src/vehicleid.pnml)
+ *    Unit wagons   1024
+ *    Coaches       2048
+ *    Freight       3072
+ *    Steam         4096
+ *    Diesel        5120
+ *    Electric      6144
+ *    Multi power   7168
+ *    MUs           8192
+ * ========================================================================== */
+
+/* Begin Functions */
+
+switch (FEAT_TRAINS, PARENT, func_is_reversed, vehicle_is_reversed) {return;}
+
+// Running cost factor depending on speed: costs rise with the speed actually run
+switch (FEAT_TRAINS, SELF, runningcostfactor, (1 + current_speed * 5 / max_speed)) {return;}
+
+// Visual effect / wagon power of a locomotive which is only at one end of a
+// multi-part (articulated) locomotive
+switch (FEAT_TRAINS, SELF, switch_visual_effect_and_powered, ((position_in_articulated_veh == 0) && !func_is_reversed()) || ((position_in_articulated_veh_from_end == 0) && func_is_reversed()) ) {
+	1: return visual_effect_and_powered(VISUAL_EFFECT_ELECTRIC, 0, ENABLE_WAGON_POWER);
+	return visual_effect_and_powered(VISUAL_EFFECT_DISABLE, 0, DISABLE_WAGON_POWER);
+}
+
+switch (FEAT_TRAINS, SELF, switch_dmu_visual_power, vehicle_is_potentially_powered) {
+    1: visual_effect_and_powered(VISUAL_EFFECT_DIESEL, 0, ENABLE_WAGON_POWER);
+    visual_effect_and_powered(VISUAL_EFFECT_DISABLE, 0, DISABLE_WAGON_POWER);
+}
+
+/* --------------------------------------------------------------------------
+ *  Name callback: makes the depot show the series name (e.g. "DF4 series")
+ *  together with the individual number of the locomotive, exactly like the
+ *  parent set does.
+ * -------------------------------------------------------------------------- */
+switch (FEAT_TRAINS, SELF, switch_name_series, getbits(extra_callback_info1, 0, 8) == 0x20? getbits(extra_callback_info1, 8, 8) : 0xFFFF) {
+    0: return string(STR_EXPORT_SERIES);
+    return CB_RESULT_NO_TEXT;
+}
+
+/* --------------------------------------------------------------------------
+ *  Attach rules.
+ *
+ *  The add-on is meant to be used together with China Set: Trains and China
+ *  Set: Narrow Gauge Add-on, so stock of all three sets may be coupled to each
+ *  other.  Anything else falls back to the railtype test, which lets the player
+ *  couple whatever the track gauge and electrification allow.
+ *
+ *  GRF IDs are little-endian in this comparison.
+ * -------------------------------------------------------------------------- */
+
+// Only stock of this family of sets may be attached, anything else is refused
+switch (FEAT_TRAINS, SELF, onlyallowcst, grfid) {
+    str2number("\5F\5F\03\01"): return CB_RESULT_ATTACH_ALLOW_IF_RAILTYPES;
+    str2number("\5F\5F\03\00"): return CB_RESULT_ATTACH_ALLOW_IF_RAILTYPES;
+    str2number("\5F\5F\03\02"): return CB_RESULT_ATTACH_ALLOW_IF_RAILTYPES;
+    return CB_RESULT_ATTACH_DISALLOW;
+}
+
+/* Locomotives and coaches: the usual railtype test decides, so coaches and
+ * freight wagons of this set and of China Set: Trains can be coupled. */
+switch (FEAT_TRAINS, SELF, locowagon, vehicle_type_id) {
+    return CB_RESULT_ATTACH_ALLOW_IF_RAILTYPES;
+}
+
+/* Multiple unit head cars and trailers: only multiple unit stock of the
+ * family may be attached, so a locomotive cannot be spliced into an MU. */
+switch (FEAT_TRAINS, SELF, muhead, vehicle_type_id) {
+    1024..1051: onlyallowcst;
+    8192..14335: onlyallowcst;
+    return CB_RESULT_ATTACH_DISALLOW;
+}
+
+/* --------------------------------------------------------------------------
+ *  Air conditioning / restaurant car bookkeeping.
+ *
+ *  Export stock is frequently sold as a complete train, and the passenger
+ *  cars are air conditioned.  If the locomotive is able to supply head-end
+ *  power (bit 2 of bitmask_consist_info) the comfort stays high, otherwise
+ *  the cargo age period is reduced by one fifth - the same mechanism the
+ *  parent set uses.
+ * -------------------------------------------------------------------------- */
+switch (FEAT_TRAINS, PARENT, accostfactor, hasbit(bitmask_consist_info, 2)) {
+    1: return 2;
+    return 0;
+}
+
+switch (FEAT_TRAINS, PARENT, acdecayfactor, hasbit(bitmask_consist_info, 2)) {
+    0: return 4;
+    return 5;
+}
+
+switch (FEAT_TRAINS, PARENT, cafecostfactor, hasbit(bitmask_consist_info, 1)) {
+    1: return 1;
+    return 2;
+}
+
+switch (FEAT_TRAINS, PARENT, cafedecayfactor, hasbit(bitmask_consist_info, 1)) {
+    1: return 5;
+    return 4;
+}
+
+// Electric locomotives can only supply the train when the line is electrified
+switch (FEAT_TRAINS, SELF, airconditioner, vehicle_is_powered) {
+    1: return bitmask(2);
+    return 0;
+}
+
+/* --------------------------------------------------------------------------
+ *  Lengths.
+ *
+ *  An articulated vehicle is split into parts;  switch_L_A_B returns the
+ *  length of the front (A), the middle (B) and the rear (A) part.  A plain
+ *  two-part vehicle simply uses switch_length_A (front) / switch_length_B.
+ * -------------------------------------------------------------------------- */
+switch (FEAT_TRAINS, SELF, switch_length_2_8_2, position_in_articulated_veh % 3) {
+    1: return 8;
+    return 2;
+}
+switch (FEAT_TRAINS, SELF, switch_length_2_7_2, position_in_articulated_veh % 3) {
+    1: return 7;
+    return 2;
+}
+switch (FEAT_TRAINS, SELF, switch_length_2_6_2, position_in_articulated_veh % 3) {
+    1: return 6;
+    return 2;
+}
+switch (FEAT_TRAINS, SELF, switch_length_2_5_2, position_in_articulated_veh % 3) {
+    1: return 5;
+    return 2;
+}
+switch (FEAT_TRAINS, SELF, switch_length_2_4_2, position_in_articulated_veh % 3) {
+    1: return 4;
+    return 2;
+}
+switch (FEAT_TRAINS, SELF, switch_length_2_3_2, position_in_articulated_veh % 3) {
+    1: return 3;
+    return 2;
+}
+switch (FEAT_TRAINS, SELF, switch_length_2_2_2, position_in_articulated_veh % 3) {
+    1: return 2;
+    return 2;
+}
+switch (FEAT_TRAINS, SELF, switch_length_2_1_2, position_in_articulated_veh % 3) {
+    1: return 1;
+    return 2;
+}
+switch (FEAT_TRAINS, SELF, switch_length_2_1_1, position_in_articulated_veh % 3) {
+    0: return 2;
+    return 1;
+}
+switch (FEAT_TRAINS, SELF, switch_length_2_6_4, position_in_articulated_veh % 3) {
+    0: return 2;
+    1: return 6;
+    return 4;
+}
+switch (FEAT_TRAINS, SELF, switch_length_2_8_6, position_in_articulated_veh % 3) {
+    0: return 2;
+    1: return 8;
+    return 6;
+}
+
+// Generic length switches for non-articulated rolling stock.
+switch (FEAT_TRAINS, SELF, switch_length_1, position_in_articulated_veh) { return 1; }
+switch (FEAT_TRAINS, SELF, switch_length_2, position_in_articulated_veh) { return 2; }
+switch (FEAT_TRAINS, SELF, switch_length_3, position_in_articulated_veh) { return 3; }
+switch (FEAT_TRAINS, SELF, switch_length_4, position_in_articulated_veh) { return 4; }
+switch (FEAT_TRAINS, SELF, switch_length_5, position_in_articulated_veh) { return 5; }
+switch (FEAT_TRAINS, SELF, switch_length_6, position_in_articulated_veh) { return 6; }
+switch (FEAT_TRAINS, SELF, switch_length_7, position_in_articulated_veh) { return 7; }
+switch (FEAT_TRAINS, SELF, switch_length_8, position_in_articulated_veh) { return 8; }
+
+/* --------------------------------------------------------------------------
+ *  Multiple unit length limits.  An MU has to be a sensible length before it
+ *  may be started; the same limits the parent set uses.
+ * -------------------------------------------------------------------------- */
+switch (FEAT_TRAINS, SELF, mu4car, num_vehs_in_consist < 12) {
+    1: return string(STR_TOO_SHORT);
+    return CB_RESULT_NO_TEXT;
+}
+
+switch (FEAT_TRAINS, SELF, mu4to24car, (num_vehs_in_consist < 12) || (num_vehs_in_consist > 72)) {
+    1: return string(STR_MUST_BE_4_TO_24_CARS);
+    return CB_RESULT_NO_TEXT;
+}
+
+/* --------------------------------------------------------------------------
+ *  Livery selection.
+ *
+ *  cargo_subtype carries the livery index.  Subtype 0 means "automatic": the
+ *  livery is then chosen from the build year, which the generated vehicle
+ *  files implement with switch_<id>_livery_auto.
+ * -------------------------------------------------------------------------- */
+
+/* End Functions */

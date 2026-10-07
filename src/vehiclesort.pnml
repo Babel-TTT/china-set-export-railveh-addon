@@ -1,0 +1,101 @@
+/* ==========================================================================
+ *  China Set: Export Rail Vehicles Add-on
+ *  src/vehiclesort.pnml -- generated purchase menu order
+ *
+ *  *** GENERATED FILE -- DO NOT EDIT BY HAND ***
+ *  Produced by genpnml.py from the tables in data/.
+ *  Edit data/*.csv and run `make gen` (or `python3 genpnml.py`) instead.
+ * ========================================================================== */
+
+//Order of the tables in data/: locomotives, coaches, wagons, unit wagons.
+//Within a table the order is the row order of the CSV file.
+
+sort (FEAT_TRAINS, [
+    // Locomotives/Diesel
+    ckd4a,
+    ckd4b,
+    ckd4c,
+    ckd6e,
+    ckd7a,
+    ckd7b,
+    ckd8a,
+    ckd8b,
+    ckd8c,
+    ckd8d,
+    ckd8e,
+    ckd8f,
+    ckd8g,
+    ckd8h,
+    ckd8j,
+    ckd9a,
+    ckd9b,
+    ckd9c,
+    df4bex,
+    df4dex,
+    df5ex,
+    df7gex,
+    df8bex,
+    df11ex,
+    df21ex,
+    sd40_2ex,
+    sd70acex,
+    c30_7ex,
+    gt42cuacex,
+    ckd6dex,
+    ckd8kex,
+
+    // Locomotives/Electric
+    hxd1ex,
+    hxd2ex,
+    hxd3ex,
+    ss3ex,
+    ss4ex,
+    ss7ex,
+    ss8ex,
+    ss9ex,
+
+    // Locomotives/Steam
+    qjex,
+
+    // DMU
+    ndj3ex,
+    nzj2ex,
+
+    // EMU
+    crh2ex,
+    crh5ex,
+    crh6ex,
+    cr400aex,
+    cr400bex,
+
+    // Coaches
+    yz25tex,
+    yw25tex,
+    rw25tex,
+    ca25tex,
+    kd25tex,
+    yz22ex,
+    yw22ex,
+    xl25ex,
+    uz25ex,
+
+    // Wagons
+    c70ex,
+    c64ex,
+    p70ex,
+    n60ex,
+    g70ex,
+    gn70ex,
+    jsq5ex,
+    l70ex,
+    b22ex,
+    sq8ex,
+    x2kex,
+    dq35ex,
+
+    // Unit Wagons
+    zecex,
+    zycex,
+    zscex,
+    zwcex,
+]);

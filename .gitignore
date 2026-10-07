@@ -1,0 +1,13 @@
+.nmlcache
+.vscode
+.venv/
+__pycache__/
+*.pyc
+*.grf
+*.nml
+*.tar
+custom_tags.txt
+gfx/**/*.png
+!gfx/empty.png
+!gfx/empty_32bpp.png
+*.lng

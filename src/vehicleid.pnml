@@ -1,0 +1,140 @@
+/* ==========================================================================
+ *  China Set: Export Rail Vehicles Add-on
+ *  src/vehicleid.pnml -- generated vehicle ID table
+ *
+ *  *** GENERATED FILE -- DO NOT EDIT BY HAND ***
+ *  Produced by genpnml.py from the tables in data/.
+ *  Edit data/*.csv and run `make gen` (or `python3 genpnml.py`) instead.
+ * ========================================================================== */
+
+//Vehicle IDs are assigned automatically inside the band of each
+//category.  Add new vehicles to data/*.csv, not to this file.
+
+//Unit Wagons, available ID range: 1024-2047 (hex 0x0400..0x07FF)
+#define id_range_unit_wagon 0x0400..0x07FF
+item (FEAT_TRAINS, zecex, 1024) {}
+item (FEAT_TRAINS, zycex, 1025) {}
+item (FEAT_TRAINS, zscex, 1026) {}
+item (FEAT_TRAINS, zwcex, 1027) {}
+
+//Coaches, available ID range: 2048-3071 (hex 0x0800..0x0BFF)
+#define id_range_coach 0x0800..0x0BFF
+item (FEAT_TRAINS, yz25tex, 2048) {}
+item (FEAT_TRAINS, yw25tex, 2049) {}
+item (FEAT_TRAINS, rw25tex, 2050) {}
+item (FEAT_TRAINS, ca25tex, 2051) {}
+item (FEAT_TRAINS, kd25tex, 2052) {}
+item (FEAT_TRAINS, yz22ex, 2053) {}
+item (FEAT_TRAINS, yw22ex, 2054) {}
+item (FEAT_TRAINS, xl25ex, 2055) {}
+item (FEAT_TRAINS, uz25ex, 2056) {}
+
+//Wagons, available ID range: 3072-4095 (hex 0x0C00..0x0FFF)
+#define id_range_wagon 0x0C00..0x0FFF
+item (FEAT_TRAINS, c70ex, 3072) {}
+item (FEAT_TRAINS, c64ex, 3073) {}
+item (FEAT_TRAINS, p70ex, 3074) {}
+item (FEAT_TRAINS, n60ex, 3075) {}
+item (FEAT_TRAINS, g70ex, 3076) {}
+item (FEAT_TRAINS, gn70ex, 3077) {}
+item (FEAT_TRAINS, jsq5ex, 3078) {}
+item (FEAT_TRAINS, l70ex, 3079) {}
+item (FEAT_TRAINS, b22ex, 3080) {}
+item (FEAT_TRAINS, sq8ex, 3081) {}
+item (FEAT_TRAINS, x2kex, 3082) {}
+item (FEAT_TRAINS, dq35ex, 3083) {}
+
+//Steam, available ID range: 4096-5119 (hex 0x1000..0x13FF)
+#define id_range_steam 0x1000..0x13FF
+item (FEAT_TRAINS, qjex, 4096) {}
+
+//Diesel, available ID range: 5120-6143 (hex 0x1400..0x17FF)
+#define id_range_diesel 0x1400..0x17FF
+item (FEAT_TRAINS, ckd4a, 5120) {}
+item (FEAT_TRAINS, ckd4b, 5121) {}
+item (FEAT_TRAINS, ckd4c, 5122) {}
+item (FEAT_TRAINS, ckd6e, 5123) {}
+item (FEAT_TRAINS, ckd7a, 5124) {}
+item (FEAT_TRAINS, ckd7b, 5125) {}
+item (FEAT_TRAINS, ckd8a, 5126) {}
+item (FEAT_TRAINS, ckd8b, 5127) {}
+item (FEAT_TRAINS, ckd8c, 5128) {}
+item (FEAT_TRAINS, ckd8d, 5129) {}
+item (FEAT_TRAINS, ckd8e, 5130) {}
+item (FEAT_TRAINS, ckd8f, 5131) {}
+item (FEAT_TRAINS, ckd8g, 5132) {}
+item (FEAT_TRAINS, ckd8h, 5133) {}
+item (FEAT_TRAINS, ckd8j, 5134) {}
+item (FEAT_TRAINS, ckd9a, 5135) {}
+item (FEAT_TRAINS, ckd9b, 5136) {}
+item (FEAT_TRAINS, ckd9c, 5137) {}
+item (FEAT_TRAINS, df4bex, 5138) {}
+item (FEAT_TRAINS, df4dex, 5139) {}
+item (FEAT_TRAINS, df5ex, 5140) {}
+item (FEAT_TRAINS, df7gex, 5141) {}
+item (FEAT_TRAINS, df8bex, 5142) {}
+item (FEAT_TRAINS, df11ex, 5143) {}
+item (FEAT_TRAINS, df21ex, 5144) {}
+item (FEAT_TRAINS, sd40_2ex, 5145) {}
+item (FEAT_TRAINS, sd70acex, 5146) {}
+item (FEAT_TRAINS, c30_7ex, 5147) {}
+item (FEAT_TRAINS, gt42cuacex, 5148) {}
+item (FEAT_TRAINS, ckd6dex, 5149) {}
+item (FEAT_TRAINS, ckd8kex, 5150) {}
+
+//25kV AC Electric, available ID range: 6144-7167 (hex 0x1800..0x1BFF)
+#define id_range_electric 0x1800..0x1BFF
+item (FEAT_TRAINS, hxd1ex, 6144) {}
+item (FEAT_TRAINS, hxd2ex, 6145) {}
+item (FEAT_TRAINS, hxd3ex, 6146) {}
+item (FEAT_TRAINS, ss3ex, 6147) {}
+item (FEAT_TRAINS, ss4ex, 6148) {}
+item (FEAT_TRAINS, ss7ex, 6149) {}
+item (FEAT_TRAINS, ss8ex, 6150) {}
+item (FEAT_TRAINS, ss9ex, 6151) {}
+
+//Multi Power Locomotive, available ID range: 7168-7679 (hex 0x1C00..0x1DFF)
+#define id_range_multipower 0x1C00..0x1DFF
+
+//1500V DC Power Locomotive, available ID range: 7680-8191 (hex 0x1E00..0x1FFF)
+#define id_range_1500v_dc 0x1E00..0x1FFF
+
+//DMU, available ID range: 8192-9215 (hex 0x2000..0x23FF)
+#define id_range_dmu 0x2000..0x23FF
+item (FEAT_TRAINS, ndj3ex, 8192) {}
+item (FEAT_TRAINS, nzj2ex, 8193) {}
+
+//25kV AC EMU, available ID range: 9216-10239 (hex 0x2400..0x27FF)
+#define id_range_emu 0x2400..0x27FF
+item (FEAT_TRAINS, crh2ex, 9216) {}
+item (FEAT_TRAINS, crh5ex, 9217) {}
+item (FEAT_TRAINS, crh6ex, 9218) {}
+item (FEAT_TRAINS, cr400aex, 9219) {}
+item (FEAT_TRAINS, cr400bex, 9220) {}
+
+//1.5kV DC EMU, available ID range: 10240-11263 (hex 0x2800..0x2BFF)
+#define id_range_1500_emu 0x2800..0x2BFF
+
+//750V DC EMU, available ID range: 11264-12287 (hex 0x2C00..0x2FFF)
+#define id_range_750_emu 0x2C00..0x2FFF
+
+//Third Rail EMU, available ID range: 12288-13311 (hex 0x3000..0x33FF)
+#define id_range_third_emu 0x3000..0x33FF
+
+//Multi Power MU, available ID range: 13312-14335 (hex 0x3400..0x37FF)
+#define id_range_multi_mu 0x3400..0x37FF
+
+//Monorail MU, available ID range: 14336-14847 (hex 0x3800..0x39FF)
+#define id_range_mono_mu 0x3800..0x39FF
+
+//Maglev MU, available ID range: 14848-15359 (hex 0x3A00..0x3BFF)
+#define id_range_mglv_mu 0x3A00..0x3BFF
+
+//Cargo DMU, available ID range: 15360-15615 (hex 0x3C00..0x3CFF)
+#define id_range_cargo_dmu 0x3C00..0x3CFF
+
+//25kV AC Cargo EMU, available ID range: 15616-16127 (hex 0x3D00..0x3EFF)
+#define id_range_cargo_emu 0x3D00..0x3EFF
+
+//Multi Power Cargo MU, available ID range: 16128-16383 (hex 0x3F00..0x3FFF)
+#define id_range_multi_cargo_mu 0x3F00..0x3FFF

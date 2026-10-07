@@ -1,0 +1,33 @@
+/* ==========================================================================
+ *  China Set: Export Rail Vehicles Add-on
+ *  chinasettrainsexport.pnml -- build entry point
+ *
+ *  This file is fed to the C preprocessor by the Makefile:
+ *
+ *      gcc -E -x c chinasettrainsexport.pnml > chinasettrainsexport.nml
+ *      nmlc -c chinasettrainsexport.nml -o chinasettrainsexport.grf
+ *
+ *  so #include, #define and #if all work, and comments are C style.
+ *  The generated block near the bottom is rewritten by genpnml.py.
+ * ========================================================================== */
+
+// Define the GRF
+#include "src/header.pnml"
+
+// Templates
+#include "src/template.pnml"
+
+// Helpers
+#include "src/railtypetable.pnml"
+#include "src/cargotable.pnml"
+#include "src/functions.pnml"
+
+// IDs -- must come before any item that is referenced from a switch
+#include "src/vehicleid.pnml"
+
+// >>> GENERATED VEHICLES (do not edit, run `make gen`) >>>
+// Every vehicle is emitted into a single generated file; the order
+// inside it follows the row order of the tables in data/.
+#include "src/usercode.pnml"
+#include "src/vehiclesort.pnml"
+// <<< GENERATED VEHICLES <<<

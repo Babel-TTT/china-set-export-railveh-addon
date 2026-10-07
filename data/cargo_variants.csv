@@ -1,0 +1,59 @@
+# China Set: Export Rail Vehicles Add-on -- freight appearance table
+#
+# Describes how a wagon looks depending on what it carries and how full
+# it is.  The generator builds this chain for every row group:
+#
+#   switch_<id>_empty         cargo_count < 5    ->  empty sprite
+#   switch_<id>_cargo_class   cargo_classes      ->  one entry per row
+#   switch_<id>_cargo_type    cargo_type_in_veh ->  rows with cargo_types
+#   switch_<id>_<variant>_stage  cargo_count    ->  partial / full load
+#
+# A row whose sprite_suffix is empty means "unloaded, use the livery
+# sprite itself".  See data/README.md for the column reference.
+#
+id,variant,sprite_suffix,cargo_classes,cargo_types,from_index,to_index,template
+c70ex,coal,c70ex-coal,bitmask(CC_BULK),,6,45,
+c70ex,cont,c70ex-container,bitmask(CC_MAIL),,6,40,
+c70ex,cont,c70ex-container,bitmask(CC_EXPRESS),,6,40,
+c70ex,cover,c70ex-cover,bitmask(CC_COVERED),,0,0,
+c70ex,cover,c70ex-cover,bitmask(CC_PIECE_GOODS),,0,0,
+c70ex,cover,c70ex-cover,bitmask(CC_OVERSIZED),,0,0,
+
+c64ex,coal,c64ex-coal,bitmask(CC_BULK),,6,40,
+c64ex,cover,c64ex-cover,bitmask(CC_COVERED),,0,0,
+c64ex,cover,c64ex-cover,bitmask(CC_PIECE_GOODS),,0,0,
+
+p70ex,metal,p70ex-metal,,ALUM|COPR|CSTI|IRON|METL|PIPE|STEL|STAL|STST|STCB|STSE|STSH|STWR|ZINC,6,40,
+p70ex,bucket,p70ex-bucket,,EOIL|FZDR|WATR|OIL_|PETR|RFPR|BUBL|COAT|DYES|PLAS|PLST|RUBR|SOAP|ACID|CTAR|LYE_|FUEL|NH3_,6,30,
+p70ex,goods,p70ex-goods,,GOOD|GRAI|WOOD|WHEA|FOOD|FRUT|MAIZ|SAND|CMNT|FERT|CLAY|KAOL|SALT|SUGR,6,38,
+
+n60ex,metal,n60ex-metal,,ALUM|COPR|CSTI|IRON|METL|PIPE|STEL|STAL|STST|STCB|STSE|STSH|STWR|ZINC,6,30,
+n60ex,bucket,n60ex-bucket,,EOIL|FZDR|WATR|OIL_|PETR|RFPR|BUBL|COAT|DYES|PLAS|PLST|RUBR|SOAP|ACID|CTAR|LYE_|FUEL|NH3_,6,30,
+n60ex,goods,n60ex-goods,,GOOD|GRAI|WOOD|WHEA|FOOD|FRUT|MAIZ|SAND|CMNT|FERT|CLAY|KAOL|SALT|SUGR,6,38,
+n60ex,vehi,n60ex-vehi,,VEHI|FMSP|ENSP,0,0,
+
+g70ex,oil,g70ex-oil,bitmask(CC_LIQUID),,6,40,
+g70ex,haz,g70ex-haz,bitmask(CC_HAZARDOUS),,6,40,
+
+gn70ex,oil,gn70ex-oil,bitmask(CC_LIQUID),,6,45,
+gn70ex,haz,gn70ex-haz,bitmask(CC_HAZARDOUS),,6,45,
+
+jsq5ex,vehi,jsq5ex-vehi,,VEHI,3,10,
+jsq5ex,ensp,jsq5ex-ensp,,ENSP|FMSP,3,10,
+
+l70ex,goods,l70ex-goods,bitmask(CC_COVERED),,6,40,
+l70ex,goods,l70ex-goods,bitmask(CC_PIECE_GOODS),,6,40,
+
+b22ex,goods,b22ex-goods,bitmask(CC_PIECE_GOODS),,6,45,
+b22ex,goods,b22ex-goods,bitmask(CC_COVERED),,6,45,
+b22ex,mail,b22ex-mail,bitmask(CC_MAIL),,6,45,
+b22ex,mail,b22ex-mail,bitmask(CC_EXPRESS),,6,45,
+
+sq8ex,coal,sq8ex-coal,bitmask(CC_BULK),,6,50,
+
+x2kex,cont,x2kex-cont,bitmask(CC_PIECE_GOODS),,6,45,
+x2kex,cont,x2kex-cont,bitmask(CC_COVERED),,6,45,
+x2kex,cont,x2kex-cont,bitmask(CC_OVERSIZED),,6,45,
+
+dq35ex,goods,dq35ex-goods,bitmask(CC_PIECE_GOODS),,3,30,
+dq35ex,goods,dq35ex-goods,bitmask(CC_OVERSIZED),,3,30,
