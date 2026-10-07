@@ -127,6 +127,16 @@ and cargotypes but no vehicles.  Real data is entered from here.
   now columns 35 and 38 of all four tables (46 columns total), matching what
   `data/README.md` documented.
 
+- Cargo capacity is now supplied by the `cargo_capacity` graphics callback
+  instead of a plain number in the property block.  NML rejects
+  `cargo_capacity: 0`, which made a locomotive with `capacity = 0` impossible,
+  and a plain number forced the same capacity onto every articulated section.
+  The callback switches on `position_in_articulated_veh`, returns the load for
+  the section named by `power_section` and `0` for the others, and falls back
+  to `cargo_type_in_veh` when `capacity_by_cargo` is set.  A single section
+  vehicle gets the same callback.  This is the pattern China Set: Trains
+  (`switch_g70_capacity`) and JPengines both use.
+
 ### Notes
 
 - The performance figures in `data/*.csv` are reasonable engineering estimates

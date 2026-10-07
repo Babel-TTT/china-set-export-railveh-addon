@@ -180,10 +180,13 @@ VEHICLE_FIELDS: List[tuple] = [
         "choices": AI_FLAGS, "default": "AI_FLAG_PASSENGER"}),
     ("capacity", "cargo", "int", "载量", {
         "default": "1", "min": 0,
-        "help": "可载单位数。机车填 1（机车自身）。"}),
+        "help": "可载单位数。机车填 0（不载货）或 1；NML 不允许 property 里写 0，"
+                "生成器会自动改用 graphics 的 cargo_capacity 回调按分节下发，"
+                "所以 0 是安全的。"}),
     ("capacity_by_cargo", "cargo", "list", "按货物分别载量", {
         "default": "", "placeholder": "COAL=45|IRON=40",
-        "help": "LABEL=数值，多个用 | 分隔，使载量随货物变化。"}),
+        "help": "LABEL=数值，多个用 | 分隔。填写后回调会先按 cargo_type_in_veh 分支，"
+                "未列出的货物取 capacity 的值。"}),
     ("loading_speed", "cargo", "int", "装载速度", {"default": "20", "min": 0}),
     ("cargo_age_period", "cargo", "int", "货物老化周期", {"default": "185", "min": 0}),
 

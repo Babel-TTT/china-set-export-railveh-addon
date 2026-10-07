@@ -80,8 +80,8 @@ works too but then the cell has to be quoted.
 | `cargo_disallow_refit` | blacklist, e.g. `[YETI\|YETY]` or `[]`. |
 | `default_cargo_type` | e.g. `PASS`, `COAL`, or `DEFAULT_CARGO_FIRST_REFITTABLE`. |
 | `ai_special_flag` | `AI_FLAG_PASSENGER` or `AI_FLAG_CARGO`. |
-| `capacity` | units carried.  Locomotives use `1` (the engine itself). |
-| `capacity_by_cargo` | optional `LABEL=value` pairs joined with `\|`; makes the capacity depend on the cargo. |
+| `capacity` | units carried.  **`0` is valid** — a locomotive carries nothing.  NML rejects `cargo_capacity: 0` in the property block, so the generator always emits the value through the `cargo_capacity` graphics callback instead and leaves a non-zero fallback in the property block.  See [capacity and sections](#capacity-and-sections). |
+| `capacity_by_cargo` | optional `LABEL=value` pairs joined with `\|`; makes the capacity depend on the cargo.  Cargos that are not listed use `capacity`. |
 | `loading_speed` | base loading speed, the GRF parameter multiplies it. |
 | `cargo_age_period` | base cargo age period. |
 | `wagon_decay` | `1` makes the wagon decay parameter apply as well. |
@@ -103,6 +103,44 @@ works too but then the cell has to be quoted.
   parent set; it is not an ID space.
 * **Switch names and sprite set names.**  They are derived from the `id` and
   the suffix columns.
+
+### Capacity and sections
+
+A vehicle never carries cargo in every section.  On stock that OpenTTD treats
+as 2-&lt;body&gt;-2 the load belongs to one section, and a locomotive carries
+nothing at all.  NML does not accept `cargo_capacity: 0` in the property block,
+so the generator supplies the value through the **`cargo_capacity` graphics
+callback** and gives the `position_in_articulated_veh` switch one case per
+section:
+
+```
+switch (FEAT_TRAINS, SELF, switch_<id>_capacity, position_in_articulated_veh % 3) {
+    1: return 62;     // the section named by power_section carries the load
+    return 0;         // every other section carries nothing
+}
+
+item (FEAT_TRAINS, <id>) {
+    property {
+        cargo_capacity: 1;            // non-zero fallback; NML rejects 0
+    }
+    graphics {
+        cargo_capacity: switch_<id>_capacity;
+    }
+}
+```
+
+This is the pattern China Set: Trains and JPengines both use, for example
+`switch_g70_capacity`.  Consequences for the tables:
+
+* `capacity = 0` is meaningful and safe: the vehicle carries nothing, which is
+  what a locomotive should report.
+* The section that carries the load is `power_section`; the others always
+  report `0`, so a two-section vehicle cannot count its load twice.
+* With `capacity_by_cargo` the section switch falls back to a
+  `cargo_type_in_veh` switch, so the load follows the cargo.  Cargos that are
+  not listed use `capacity`.
+* Single section stock (`model=single`) gets the callback too, with
+  `position_in_articulated_veh % 1`.
 
 ## `liveries.csv`
 

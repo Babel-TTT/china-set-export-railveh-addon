@@ -954,11 +954,29 @@ def _empty_sprite(vehicle: Vehicle, livery: Livery) -> str:
     return _livery_spriteset_name(vehicle, livery)
 
 
-def _emit_capacity_switch(emitter: Emitter, vehicle: Vehicle) -> Optional[str]:
-    if not vehicle.is_articulated:
-        return None
+def _emit_capacity_switch(emitter: Emitter, vehicle: Vehicle) -> str:
+    """Emit the ``cargo_capacity`` graphics callback for one vehicle.
+
+    A vehicle never carries cargo in every section: on stock that OpenTTD
+    treats as 2-<body>-2 the load belongs to one section only, and a locomotive
+    carries nothing at all.  NML does not allow ``cargo_capacity: 0`` in the
+    property block, so the value is supplied by the graphics callback instead
+    and the property block only keeps a non-zero fallback.  This is the pattern
+    China Set: Trains and JPengines both use, for example::
+
+        switch (FEAT_TRAINS, SELF, switch_<id>_capacity,
+                position_in_articulated_veh % 3) {
+            1: return 62;
+            return 0;
+        }
+
+    Every vehicle gets the callback, including a single section one, so a
+    locomotive can honestly report a capacity of zero.
+    """
     switch = "switch_%s_capacity" % vehicle.id
     if vehicle.capacity_by_cargo:
+        # the capacity depends on the cargo, so the section switch falls back
+        # to a cargo switch instead of a plain number
         inner = "switch_%s_capacity_cargo" % vehicle.id
         cases = []
         for item in _split_list(vehicle.capacity_by_cargo):
@@ -1069,7 +1087,9 @@ def render_item(vehicle: Vehicle, default_graphics: str,
     add("        refit_cost:                     0;")
     add("        default_cargo_type:             %s;" % vehicle.default_cargo)
     add("        ai_special_flag:                %s;" % vehicle.ai_flag)
-    add("        cargo_capacity:                 %d;" % vehicle.capacity)
+    # NML rejects cargo_capacity: 0, and the real per section value comes from
+    # the graphics callback below, so the property keeps a non-zero fallback.
+    add("        cargo_capacity:                 %d;" % max(vehicle.capacity, 1))
     add("        loading_speed:                  %d << param_loading_speed;" % vehicle.loading_speed)
     add("        cargo_age_period:               %d << param_cargo_decay;" % vehicle.cargo_age_period)
     add("")
@@ -1121,7 +1141,9 @@ def render_item(vehicle: Vehicle, default_graphics: str,
     add("        // Stats")
     if vehicle.is_articulated and vehicle.length_switch:
         add("        length:                         %s;" % vehicle.length_switch)
-    if capacity_switch:
+    if capacity_switch and (vehicle.is_articulated or vehicle.capacity <= vehicle.part_count):
+        # the callback carries the real load, section by section; a plain
+        # number would force the same capacity onto every section
         add("        cargo_capacity:                 %s;" % capacity_switch)
     if power_switch:
         add("        power:                          %s;" % power_switch)
