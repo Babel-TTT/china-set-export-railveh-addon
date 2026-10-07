@@ -1,0 +1,122 @@
+/* ==========================================================================
+ *  China Set: Export Rail Vehicles Add-on
+ *  src/diesel/ckd7b.pnml -- generated vehicle code
+ *
+ *  *** GENERATED FILE -- DO NOT EDIT BY HAND ***
+ *  Produced by genpnml.py from the tables in data/.
+ *  Edit data/*.csv and run `make gen` (or `python3 genpnml.py`) instead.
+ * ========================================================================== */
+
+/* ==========================================================================
+ *  SWITCHES  (callbacks, livery and cargo selection)
+ * ========================================================================== */
+
+switch (FEAT_TRAINS, SELF, switch_ckd7b_articulated_part, extra_callback_info1) {
+    1..2: return ckd7b;
+    return CB_RESULT_NO_MORE_ARTICULATED_PARTS;
+}
+
+switch (FEAT_TRAINS, SELF, switch_ckd7b_visual, position_in_articulated_veh % 3) {
+    1: return visual_effect_and_powered(VISUAL_EFFECT_DIESEL, 0, ENABLE_WAGON_POWER);
+    return visual_effect_and_powered(VISUAL_EFFECT_DISABLE, 0, DISABLE_WAGON_POWER);
+}
+
+switch (FEAT_TRAINS, SELF, switch_ckd7b_capacity, position_in_articulated_veh % 3) {
+    1: return 1;
+    return 0;
+}
+
+switch (FEAT_TRAINS, SELF, switch_ckd7b_power, position_in_articulated_veh % 3) {
+    1: return 1500;
+    return 0;
+}
+
+switch (FEAT_TRAINS, SELF, switch_ckd7b_weight, position_in_articulated_veh) {
+    return 46;
+}
+
+switch (FEAT_TRAINS, SELF, switch_ckd7b_graphics, position_in_articulated_veh % 3) {
+    1: spriteset_ckd7b;
+    empty_sprites;
+}
+
+/* ==========================================================================
+ *  SPRITESETS
+ * ========================================================================== */
+
+spriteset (spriteset_ckd7b, ZOOM_LEVEL_IN_4X, BIT_DEPTH_32BPP) {
+    template_standard ("diesel", "ckd7b")
+}
+
+spriteset (spriteset_ckd7b_purchase, ZOOM_LEVEL_IN_4X, BIT_DEPTH_32BPP) {
+    template_purchase ("diesel", "ckd7b")
+}
+
+/* ==========================================================================
+ *  VEHICLE
+ * ========================================================================== */
+
+// Begin CKD7B
+/* name callback: series name in the depot window */
+item (FEAT_TRAINS, ckd7b) {
+    property {
+        // Menu
+        name:                           string(STR_NAME_CKD7B);
+        sprite_id:                      SPRITE_ID_NEW_TRAIN;
+        misc_flags:                     bitmask(TRAIN_FLAG_AUTOREFIT);
+        engine_class:                   ENGINE_CLASS_DIESEL;
+
+        // Availability
+        climates_available:             ALL_CLIMATES;
+        introduction_date:              date(2003,01,01);
+        model_life:                     VEHICLE_NEVER_EXPIRES;
+        vehicle_life:                   30;
+        track_type:                     BACN;
+
+        // Cargo
+        refittable_cargo_classes:       bitmask(CC_PASSENGERS);
+        non_refittable_cargo_classes:   0;
+        cargo_allow_refit:              [];
+        cargo_disallow_refit:           [];
+        refit_cost:                     0;
+        default_cargo_type:             PASS;
+        ai_special_flag:                AI_FLAG_PASSENGER;
+        cargo_capacity:                 1;
+        loading_speed:                  8 << param_loading_speed;
+        cargo_age_period:               185 << param_cargo_decay;
+
+        // Stats
+        speed:                          100 km/h;
+        power:                          1500 kW;
+        weight:                         138 ton;
+        tractive_effort_coefficient:    0.23;
+        cost_factor:                    60;
+        running_cost_base:              RUNNING_COST_DIESEL;
+        running_cost_factor:            54;
+        reliability_decay:              10;
+        bitmask_vehicle_info:           bitmask(2);
+    }
+    graphics {
+        // Menu
+        additional_text:                string(STR_DESC_EXPORT, string(STR_FULL_NAME_CKD7B), string(STR_LIVERY_EXPORT, string(STR_ORIGINAL)), string(STR_CAT_LOCO));
+        name:                           switch_name_series;
+        can_attach_wagon:               locowagon;
+
+        // Graphics
+        default:                        switch_ckd7b_graphics;
+        purchase:                       spriteset_ckd7b_purchase;
+        articulated_part:               switch_ckd7b_articulated_part;
+        visual_effect_and_powered:      switch_ckd7b_visual;
+
+        // Stats
+        length:                         switch_length_2_4_2;
+        cargo_capacity:                 switch_ckd7b_capacity;
+        power:                          switch_ckd7b_power;
+        weight:                         switch_ckd7b_weight;
+        cost_factor:                    60;
+        running_cost_factor:            54 * runningcostfactor();
+        purchase_running_cost_factor:   162;
+    }
+}
+
+// End CKD7B

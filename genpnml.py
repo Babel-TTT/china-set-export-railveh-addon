@@ -38,6 +38,7 @@ from __future__ import annotations
 import argparse
 import csv
 import os
+import re
 import shutil
 import struct
 import sys
@@ -365,6 +366,14 @@ class Vehicle:
         return "STR_NAME_" + self.id.upper()
 
     @property
+    def display_name(self) -> str:
+        """Human readable name, for the language table."""
+        text = (self.name_string or "").strip()
+        if not text or text.startswith("STR_") or text.startswith('"'):
+            return self.id.upper()
+        return text
+
+    @property
     def full_name_constant(self) -> str:
         return "STR_FULL_NAME_" + self.id.upper()
 
@@ -601,6 +610,12 @@ def load_vehicles(data_dir: str) -> List[Vehicle]:
                 )
             seen[vehicle.id] = filename
             vehicles.append(vehicle)
+
+    problems = validate_vehicles(vehicles)
+    if problems:
+        for problem in problems:
+            print("ERROR: %s" % problem, file=sys.stderr)
+        raise SystemExit(1)
     return vehicles
 
 
@@ -1506,46 +1521,80 @@ def write_file(path: str, text: str) -> None:
 # --------------------------------------------------------------------------
 
 
-def render_usercode(vehicles: Sequence[Vehicle]) -> str:
-    """Assemble src/usercode.pnml.
+def vehicle_file_path(vehicle: Vehicle, out_dir: str) -> str:
+    """Path of the generated file of one vehicle.
 
-    The file has three sections in the order the hand written sets use:
-    switches, spritesets, then the item blocks.  Keeping them apart makes the
-    generated code far easier to read and diff.
+    One vehicle, one file, grouped by kind exactly like China Set: Trains:
+
+        src/<folder>/<id>.pnml
+    """
+    return os.path.join(out_dir, vehicle.folder, "%s.pnml" % vehicle.id)
+
+
+def render_vehicle_file(vehicle: Vehicle) -> str:
+    """Assemble the PNML of a single vehicle.
+
+    The file holds that vehicle's switches, its spritesets and its item block,
+    in the order the hand written sets use.  Keeping one vehicle per file means
+    adding or changing a vehicle touches exactly one file, so diffs stay small
+    and merge conflicts are rare.
     """
     switches = Emitter()
     sprites = Emitter()
     items = Emitter()
 
-    emit_livery_callbacks(switches, vehicles)
-    emit_articulated_callbacks(switches, vehicles)
+    # callbacks that belong to this vehicle only
+    emit_livery_callbacks(switches, [vehicle])
+    emit_articulated_callbacks(switches, [vehicle])
 
+    emit_vehicle(sprites, switches, items, vehicle)
+
+    def section(title: str, emitter: Emitter) -> str:
+        body = "\n\n".join(block for block in emitter.blocks if block.strip())
+        if not body:
+            return ""
+        bar = "=" * 74
+        return "/* %s\n *  %s\n * %s */\n\n%s" % (bar, title, bar, body)
+
+    parts = [GENERATED_HEADER.format(
+        title="src/%s/%s.pnml -- generated vehicle code"
+              % (vehicle.folder, vehicle.id)).rstrip("\n")]
+    for title, emitter in (("SWITCHES  (callbacks, livery and cargo selection)", switches),
+                           ("SPRITESETS", sprites),
+                           ("VEHICLE", items)):
+        text = section(title, emitter)
+        if text:
+            parts.append(text)
+    return "\n\n".join(parts) + "\n"
+
+
+def render_vehiclefiles(vehicles: Sequence[Vehicle], out_dir: str) -> str:
+    """The include list that pulls every generated vehicle file into the GRF.
+
+    This is the file the hand written index includes, so the index itself never
+    has to change when a vehicle is added or removed.
+    """
+    lines = [GENERATED_HEADER.format(
+        title="src/vehiclefiles.pnml -- include list of the generated vehicle files").rstrip("\n"),
+        "",
+        "// One file per vehicle, grouped by kind.  The order of the includes is",
+        "// the order the vehicles appear in the purchase menu.",
+        ""]
     current = None
     for vehicle in vehicles:
         label = CATEGORY_LABEL.get(vehicle.category, vehicle.category)
         if label != current:
+            if current is not None:
+                lines.append("")
             current = label
-            banner = ("/* ---------------------------------------------------------------\n"
-                      " *  %s\n"
-                      " * --------------------------------------------------------------- */"
-                      % label)
-            switches.add(banner)
-            sprites.add(banner)
-            items.add(banner)
-        emit_vehicle(sprites, switches, items, vehicle)
-
-    def section(title: str, emitter: Emitter) -> str:
-        body = "\n\n".join(block for block in emitter.blocks if block.strip())
-        bar = "=" * 74
-        return "/* %s\n *  %s\n * %s */\n\n%s" % (bar, title, bar, body)
-
-    parts = [
-        GENERATED_HEADER.format(title="src/usercode.pnml -- generated vehicle code"),
-        section("SWITCHES  (callbacks, livery and cargo selection)", switches),
-        section("SPRITESETS", sprites),
-        section("VEHICLES", items),
-    ]
-    return "\n".join(parts) + "\n"
+            lines.append("// %s" % label)
+        # the path is relative to the index file, which includes this file as
+        # "src/vehiclefiles.pnml"; a nested include therefore must NOT repeat
+        # the "src/" prefix or gcc would look for src/src/...
+        relative = os.path.join(vehicle.folder, "%s.pnml" % vehicle.id)
+        lines.append('#include "%s"' % relative.replace(os.sep, "/"))
+    lines.append("")
+    return "\n".join(lines)
 
 
 def render_vehicleid(vehicles: Sequence[Vehicle], ids: Dict[str, int]) -> str:
@@ -1753,9 +1802,7 @@ def collect_strings(vehicles: Sequence[Vehicle]) -> List[Tuple[str, str, str]]:
         result.append((constant, english, chinese))
 
     for vehicle in vehicles:
-        plain_name = (vehicle.name_string or "").strip()
-        if plain_name.startswith("STR_") or plain_name.startswith('"'):
-            plain_name = vehicle.id.upper()
+        plain_name = vehicle.display_name
         add(vehicle.name_constant, plain_name, "")
         if vehicle.additional_text and "STR_FULL_NAME_" + vehicle.id.upper() in vehicle.additional_text:
             add(vehicle.full_name_constant, plain_name, "")
@@ -1788,18 +1835,136 @@ def render_strings(vehicles: Sequence[Vehicle], path: str) -> None:
     print("genpnml: wrote %d strings to %s" % (len(rows), path))
 
 
+def load_string_table(path: str) -> Dict[str, str]:
+    """Return {constant: english} of an existing language table."""
+    table: Dict[str, str] = {}
+    if not os.path.exists(path):
+        return table
+    with open(path, "r", encoding="utf-8") as handle:
+        for row in csv.reader(handle):
+            if len(row) >= 2 and row[0].strip() and not row[0].strip().startswith("#"):
+                table[row[0].strip()] = row[1].strip()
+    return table
+
+
+def collect_referenced_strings(vehicles: Sequence[Vehicle]) -> set:
+    """Every STR_ constant the generated code and the hand written files use."""
+    referenced = set()
+
+    # src/header.pnml and the shared library files
+    src_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "src")
+    if os.path.isdir(src_dir):
+        for name in sorted(os.listdir(src_dir)):
+            if not name.endswith(".pnml"):
+                continue
+            with open(os.path.join(src_dir, name), "r", encoding="utf-8") as handle:
+                text = handle.read()
+            referenced.update(re.findall(r"\b(STR_[A-Z0-9_]+)\b", text))
+
+    # everything the generator emits
+    for vehicle in vehicles:
+        referenced.add(vehicle.name_constant)
+        if "STR_FULL_NAME_" + vehicle.id.upper() in (vehicle.additional_text or ""):
+            referenced.add(vehicle.full_name_constant)
+        for livery in vehicle.liveries:
+            if livery.string:
+                referenced.add(livery.string)
+        for constant in re.findall(r"\b(STR_[A-Z0-9_]+)\b",
+                                   vehicle.additional_text or ""):
+            referenced.add(constant)
+    for constant, _, _ in STATIC_STRINGS:
+        referenced.add(constant)
+    return referenced
+
+
+def check_strings(vehicles: Sequence[Vehicle], path: str) -> int:
+    """Report strings the code needs but the table lacks, and vice versa."""
+    defined = load_string_table(path)
+    referenced = collect_referenced_strings(vehicles)
+
+    missing = sorted(referenced - set(defined))
+    unused = sorted(set(defined) - referenced)
+
+    for constant in missing:
+        print("genpnml: MISSING  %s is used but not defined in %s"
+              % (constant, path), file=sys.stderr)
+    for constant in unused:
+        print("genpnml: unused   %s is defined but never used" % constant)
+
+    print("genpnml --check: %d referenced, %d defined, %d missing, %d unused"
+          % (len(referenced), len(defined), len(missing), len(unused)))
+    return 1 if missing else 0
+
+
+NML_STRING_RE = re.compile(r'^(?:STR_[A-Z0-9_]+|"[^"]*"|\{[^}]*\})$')
+
+
+def validate_vehicles(vehicles: Sequence[Vehicle]) -> List[str]:
+    """Cheap sanity checks that keep malformed tables out of the compiler.
+
+    A name that is neither an STR_ constant nor a quoted literal would be
+    pasted into string(...) verbatim, which produces a confusing NML syntax
+    error much later; catching it here names the offending row instead.
+    """
+    problems: List[str] = []
+    for vehicle in vehicles:
+        raw = (vehicle.name_string or "").strip()
+        if raw.startswith("STR_") or raw.startswith('"'):
+            if not NML_STRING_RE.match(raw):
+                problems.append(
+                    "%s: name_string %r looks like an NML string but is not "
+                    "a valid STR_ constant or quoted literal" % (vehicle.id, raw))
+        elif not raw:
+            problems.append("%s: name_string is empty" % vehicle.id)
+        # a plain display name is fine, it becomes STR_NAME_<ID>
+        if not re.fullmatch(r"[a-z][a-z0-9_]*", vehicle.id):
+            problems.append(
+                "%s: id must be lower case letters, digits and underscores only"
+                % vehicle.id)
+        if vehicle.folder.startswith(("/", "\\")) or ".." in vehicle.folder:
+            problems.append("%s: folder %r is not a relative path"
+                            % (vehicle.id, vehicle.folder))
+    return problems
+
+
+def remove_generated(out_dir: str) -> int:
+    """Delete everything the previous run wrote, using its manifest."""
+    manifest_path = os.path.join(out_dir, MANIFEST_NAME)
+    previous = _read_manifest(manifest_path)
+    removed = 0
+    for relative in previous:
+        path = os.path.join(out_dir, relative)
+        if os.path.isfile(path):
+            os.remove(path)
+            removed += 1
+        directory = os.path.dirname(path)
+        while directory and os.path.abspath(directory) != os.path.abspath(out_dir):
+            if os.path.isdir(directory) and not os.listdir(directory):
+                os.rmdir(directory)
+                directory = os.path.dirname(directory)
+            else:
+                break
+    if os.path.exists(manifest_path):
+        os.remove(manifest_path)
+    return removed
+
+
 def render_include(index_file: str, vehicles: Sequence[Vehicle]) -> None:
     """Refresh the generated include block inside the hand written index file.
 
     Only the region between the two marker comments is replaced, so the hand
-    written #include lines above and below it survive a regeneration.
+    written #include lines above and below it survive a regeneration.  The
+    vehicle files themselves are pulled in through src/vehiclefiles.pnml, which
+    is why the index does not change when a vehicle is added or removed.
     """
     begin = "// >>> GENERATED VEHICLES (do not edit, run `make gen`) >>>"
     end = "// <<< GENERATED VEHICLES <<<"
     lines = [begin,
-             "// Every vehicle is emitted into a single generated file; the order",
-             "// inside it follows the row order of the tables in data/.",
-             '#include "src/usercode.pnml"',
+             "// One generated file per vehicle; src/vehiclefiles.pnml lists them all",
+             "// in purchase menu order.",
+             '#include "src/vehiclefiles.pnml"',
+             "",
+             "// Purchase menu order.",
              '#include "src/vehiclesort.pnml"',
              end]
     block = "\n".join(lines)
@@ -1822,6 +1987,52 @@ def render_include(index_file: str, vehicles: Sequence[Vehicle]) -> None:
 # --------------------------------------------------------------------------
 
 
+MANIFEST_NAME = ".genpnml-manifest"
+
+
+def _read_manifest(path: str) -> List[str]:
+    if not os.path.exists(path):
+        return []
+    with open(path, "r", encoding="utf-8") as handle:
+        return [line.strip() for line in handle if line.strip()]
+
+
+def write_generated(out_dir: str, files: Dict[str, str]) -> Tuple[int, int]:
+    """Write the generated files and remove ones that are no longer produced.
+
+    A manifest records what the previous run wrote, so deleting a row from a
+    table also deletes its .pnml instead of leaving an orphan behind that the
+    include list no longer mentions.
+    """
+    manifest_path = os.path.join(out_dir, MANIFEST_NAME)
+    previous = set(_read_manifest(manifest_path))
+    current = set(files)
+
+    for relative, text in sorted(files.items()):
+        write_file(os.path.join(out_dir, relative), text)
+
+    removed = 0
+    for relative in sorted(previous - current):
+        path = os.path.join(out_dir, relative)
+        if os.path.isfile(path):
+            os.remove(path)
+            removed += 1
+    # drop directories that just became empty
+    for relative in sorted(previous - current):
+        directory = os.path.dirname(os.path.join(out_dir, relative))
+        while directory and os.path.abspath(directory) != os.path.abspath(out_dir):
+            if os.path.isdir(directory) and not os.listdir(directory):
+                os.rmdir(directory)
+                directory = os.path.dirname(directory)
+            else:
+                break
+
+    with open(manifest_path, "w", encoding="utf-8", newline="\n") as handle:
+        for relative in sorted(current):
+            handle.write(relative + "\n")
+    return len(files), removed
+
+
 def generate(data_dir: str, out_dir: str, index_file: str, with_vox: bool,
              vox_root: str, gfx_root: str) -> int:
     vehicles = load_vehicles(data_dir)
@@ -1831,9 +2042,16 @@ def generate(data_dir: str, out_dir: str, index_file: str, with_vox: bool,
 
     ids = assign_ids(vehicles)
 
-    write_file(os.path.join(out_dir, "usercode.pnml"), render_usercode(vehicles))
-    write_file(os.path.join(out_dir, "vehicleid.pnml"), render_vehicleid(vehicles, ids))
-    write_file(os.path.join(out_dir, "vehiclesort.pnml"), render_vehiclesort(vehicles, ids))
+    # one file per vehicle, plus the three index files
+    files: Dict[str, str] = {}
+    for vehicle in vehicles:
+        relative = os.path.join(vehicle.folder, "%s.pnml" % vehicle.id)
+        files[relative] = render_vehicle_file(vehicle)
+    files["vehiclefiles.pnml"] = render_vehiclefiles(vehicles, out_dir)
+    files["vehicleid.pnml"] = render_vehicleid(vehicles, ids)
+    files["vehiclesort.pnml"] = render_vehiclesort(vehicles, ids)
+
+    written, removed = write_generated(out_dir, files)
 
     # gfx/empty.png must be an 8bpp indexed image carrying the OpenTTD
     # palette, otherwise nmlc refuses to load it; it is part of the repository,
@@ -1868,7 +2086,8 @@ def generate(data_dir: str, out_dir: str, index_file: str, with_vox: bool,
 
     render_include(index_file, vehicles)
 
-    print("genpnml: %d vehicles, %d voxel models" % (len(vehicles), vox_written))
+    print("genpnml: %d vehicles -> %d files (%d removed), %d voxel models"
+          % (len(vehicles), written, removed, vox_written))
     for category in BAND_ORDER:
         group = [v for v in vehicles if v.category == category]
         if group:
@@ -1894,19 +2113,20 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                         help="refresh docs/str.csv from the data tables and exit")
     parser.add_argument("--strings-file", default="docs/str.csv",
                         help="path of the language table")
+    parser.add_argument("--check", action="store_true",
+                        help="verify that every string the code uses is defined in "
+                             "the language table, and exit")
     args = parser.parse_args(argv)
 
     if args.strings:
         render_strings(load_vehicles(args.data), args.strings_file)
         return 0
 
+    if args.check:
+        return check_strings(load_vehicles(args.data), args.strings_file)
+
     if args.clean:
-        removed = 0
-        for name in ("usercode.pnml", "vehicleid.pnml", "vehiclesort.pnml"):
-            path = os.path.join(args.out, name)
-            if os.path.exists(path):
-                os.remove(path)
-                removed += 1
+        removed = remove_generated(args.out)
         print("genpnml: removed %d generated files" % removed)
         return 0
 

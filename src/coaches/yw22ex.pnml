@@ -1,0 +1,105 @@
+/* ==========================================================================
+ *  China Set: Export Rail Vehicles Add-on
+ *  src/coaches/yw22ex.pnml -- generated vehicle code
+ *
+ *  *** GENERATED FILE -- DO NOT EDIT BY HAND ***
+ *  Produced by genpnml.py from the tables in data/.
+ *  Edit data/*.csv and run `make gen` (or `python3 genpnml.py`) instead.
+ * ========================================================================== */
+
+/* ==========================================================================
+ *  SWITCHES  (callbacks, livery and cargo selection)
+ * ========================================================================== */
+
+switch (FEAT_TRAINS, SELF, switch_yw22ex_articulated_part, extra_callback_info1) {
+    1..2: return yw22ex;
+    return CB_RESULT_NO_MORE_ARTICULATED_PARTS;
+}
+
+switch (FEAT_TRAINS, SELF, switch_yw22ex_capacity, position_in_articulated_veh % 3) {
+    1: return 60;
+    return 0;
+}
+
+switch (FEAT_TRAINS, SELF, switch_yw22ex_weight, position_in_articulated_veh) {
+    return 15;
+}
+
+switch (FEAT_TRAINS, SELF, switch_yw22ex_graphics, position_in_articulated_veh % 3) {
+    1: spriteset_yw22ex;
+    empty_sprites;
+}
+
+/* ==========================================================================
+ *  SPRITESETS
+ * ========================================================================== */
+
+spriteset (spriteset_yw22ex, ZOOM_LEVEL_IN_4X, BIT_DEPTH_32BPP) {
+    template_standard ("coaches", "yw22ex")
+}
+
+spriteset (spriteset_yw22ex_purchase, ZOOM_LEVEL_IN_4X, BIT_DEPTH_32BPP) {
+    template_purchase ("coaches", "yw22ex")
+}
+
+/* ==========================================================================
+ *  VEHICLE
+ * ========================================================================== */
+
+// Begin YW22EX
+item (FEAT_TRAINS, yw22ex) {
+    property {
+        // Menu
+        name:                           string(STR_NAME_YW22EX);
+        sprite_id:                      SPRITE_ID_NEW_TRAIN;
+        misc_flags:                     bitmask(TRAIN_FLAG_AUTOREFIT);
+
+        // Availability
+        climates_available:             ALL_CLIMATES;
+        introduction_date:              date(1980,01,01);
+        model_life:                     VEHICLE_NEVER_EXPIRES;
+        vehicle_life:                   28;
+        track_type:                     SACN;
+
+        // Cargo
+        refittable_cargo_classes:       bitmask(CC_PASSENGERS);
+        non_refittable_cargo_classes:   0;
+        cargo_allow_refit:              [PASS|TOUR];
+        cargo_disallow_refit:           [];
+        refit_cost:                     0;
+        default_cargo_type:             PASS;
+        ai_special_flag:                AI_FLAG_PASSENGER;
+        cargo_capacity:                 60;
+        loading_speed:                  8 << param_loading_speed;
+        cargo_age_period:               185 << param_cargo_decay;
+
+        // Stats
+        speed:                          120 km/h;
+        power:                          0 hp;
+        weight:                         45.5 ton;
+        cost_factor:                    8;
+        running_cost_base:              RUNNING_COST_ELECTRIC;
+        running_cost_factor:            5;
+    }
+    graphics {
+        // Menu
+        additional_text:                string(STR_DESC_EXPORT, string(STR_FULL_NAME_YW22EX), string(STR_LIVERY_EXPORT, string(STR_ORIGINAL)), string(STR_CAT_COACH));
+        can_attach_wagon:               locowagon;
+
+        // Graphics
+        default:                        switch_yw22ex_graphics;
+        purchase:                       spriteset_yw22ex_purchase;
+        articulated_part:               switch_yw22ex_articulated_part;
+
+        // Stats
+        length:                         switch_length_2_8_2;
+        cargo_capacity:                 switch_yw22ex_capacity;
+        weight:                         switch_yw22ex_weight;
+        purchase_cargo_capacity:        20;
+        cost_factor:                    8;
+        running_cost_factor:            5 * runningcostfactor();
+        purchase_running_cost_factor:   22;
+    }
+}
+
+// End YW22EX

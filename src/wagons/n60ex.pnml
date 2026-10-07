@@ -1,0 +1,197 @@
+/* ==========================================================================
+ *  China Set: Export Rail Vehicles Add-on
+ *  src/wagons/n60ex.pnml -- generated vehicle code
+ *
+ *  *** GENERATED FILE -- DO NOT EDIT BY HAND ***
+ *  Produced by genpnml.py from the tables in data/.
+ *  Edit data/*.csv and run `make gen` (or `python3 genpnml.py`) instead.
+ * ========================================================================== */
+
+/* ==========================================================================
+ *  SWITCHES  (callbacks, livery and cargo selection)
+ * ========================================================================== */
+
+switch (FEAT_TRAINS, SELF, switch_n60ex_articulated_part, extra_callback_info1) {
+    1..2: return n60ex;
+    return CB_RESULT_NO_MORE_ARTICULATED_PARTS;
+}
+
+switch (FEAT_TRAINS, SELF, switch_n60ex_metal_stage, cargo_count) {
+    0..5: spriteset_n60ex;
+    6..30: spriteset_n60ex_n60ex_metal;
+    spriteset_n60ex_n60ex_metal;
+}
+
+switch (FEAT_TRAINS, SELF, switch_n60ex_bucket_stage, cargo_count) {
+    0..5: spriteset_n60ex;
+    6..30: spriteset_n60ex_n60ex_bucket;
+    spriteset_n60ex_n60ex_bucket;
+}
+
+switch (FEAT_TRAINS, SELF, switch_n60ex_goods_stage, cargo_count) {
+    0..5: spriteset_n60ex;
+    6..38: spriteset_n60ex_n60ex_goods;
+    spriteset_n60ex_n60ex_goods;
+}
+
+switch (FEAT_TRAINS, SELF, switch_n60ex_cargo_type, cargo_type_in_veh) {
+    ALUM: switch_n60ex_metal_stage;
+    COPR: switch_n60ex_metal_stage;
+    CSTI: switch_n60ex_metal_stage;
+    IRON: switch_n60ex_metal_stage;
+    METL: switch_n60ex_metal_stage;
+    PIPE: switch_n60ex_metal_stage;
+    STEL: switch_n60ex_metal_stage;
+    STAL: switch_n60ex_metal_stage;
+    STST: switch_n60ex_metal_stage;
+    STCB: switch_n60ex_metal_stage;
+    STSE: switch_n60ex_metal_stage;
+    STSH: switch_n60ex_metal_stage;
+    STWR: switch_n60ex_metal_stage;
+    ZINC: switch_n60ex_metal_stage;
+    EOIL: switch_n60ex_bucket_stage;
+    FZDR: switch_n60ex_bucket_stage;
+    WATR: switch_n60ex_bucket_stage;
+    OIL_: switch_n60ex_bucket_stage;
+    PETR: switch_n60ex_bucket_stage;
+    RFPR: switch_n60ex_bucket_stage;
+    BUBL: switch_n60ex_bucket_stage;
+    COAT: switch_n60ex_bucket_stage;
+    DYES: switch_n60ex_bucket_stage;
+    PLAS: switch_n60ex_bucket_stage;
+    PLST: switch_n60ex_bucket_stage;
+    RUBR: switch_n60ex_bucket_stage;
+    SOAP: switch_n60ex_bucket_stage;
+    ACID: switch_n60ex_bucket_stage;
+    CTAR: switch_n60ex_bucket_stage;
+    LYE_: switch_n60ex_bucket_stage;
+    FUEL: switch_n60ex_bucket_stage;
+    NH3_: switch_n60ex_bucket_stage;
+    GOOD: switch_n60ex_goods_stage;
+    GRAI: switch_n60ex_goods_stage;
+    WOOD: switch_n60ex_goods_stage;
+    WHEA: switch_n60ex_goods_stage;
+    FOOD: switch_n60ex_goods_stage;
+    FRUT: switch_n60ex_goods_stage;
+    MAIZ: switch_n60ex_goods_stage;
+    SAND: switch_n60ex_goods_stage;
+    CMNT: switch_n60ex_goods_stage;
+    FERT: switch_n60ex_goods_stage;
+    CLAY: switch_n60ex_goods_stage;
+    KAOL: switch_n60ex_goods_stage;
+    SALT: switch_n60ex_goods_stage;
+    SUGR: switch_n60ex_goods_stage;
+    VEHI: spriteset_n60ex_n60ex_vehi;
+    FMSP: spriteset_n60ex_n60ex_vehi;
+    ENSP: spriteset_n60ex_n60ex_vehi;
+    spriteset_n60ex;
+}
+
+switch (FEAT_TRAINS, SELF, switch_n60ex_empty, cargo_count < 5) {
+    0: switch_n60ex_cargo_type;
+    spriteset_n60ex;
+}
+
+switch (FEAT_TRAINS, SELF, switch_n60ex_capacity, position_in_articulated_veh % 3) {
+    1: return 60;
+    return 0;
+}
+
+switch (FEAT_TRAINS, SELF, switch_n60ex_weight, position_in_articulated_veh) {
+    return 6;
+}
+
+switch (FEAT_TRAINS, SELF, switch_n60ex_graphics, position_in_articulated_veh % 3) {
+    1: switch_n60ex_empty;
+    empty_sprites;
+}
+
+/* ==========================================================================
+ *  SPRITESETS
+ * ========================================================================== */
+
+spriteset (spriteset_n60ex, ZOOM_LEVEL_IN_4X, BIT_DEPTH_32BPP) {
+    template_standard ("wagons", "n60ex")
+}
+
+spriteset (spriteset_n60ex_purchase, ZOOM_LEVEL_IN_4X, BIT_DEPTH_32BPP) {
+    template_purchase ("wagons", "n60ex")
+}
+
+spriteset (spriteset_n60ex_n60ex_metal, ZOOM_LEVEL_IN_4X, BIT_DEPTH_32BPP) {
+    template_standard ("wagons", "n60ex-metal")
+}
+
+spriteset (spriteset_n60ex_n60ex_bucket, ZOOM_LEVEL_IN_4X, BIT_DEPTH_32BPP) {
+    template_standard ("wagons", "n60ex-bucket")
+}
+
+spriteset (spriteset_n60ex_n60ex_goods, ZOOM_LEVEL_IN_4X, BIT_DEPTH_32BPP) {
+    template_standard ("wagons", "n60ex-goods")
+}
+
+spriteset (spriteset_n60ex_n60ex_vehi, ZOOM_LEVEL_IN_4X, BIT_DEPTH_32BPP) {
+    template_standard ("wagons", "n60ex-vehi")
+}
+
+/* ==========================================================================
+ *  VEHICLE
+ * ========================================================================== */
+
+// Begin N60EX
+item (FEAT_TRAINS, n60ex) {
+    property {
+        // Menu
+        name:                           string(STR_NAME_N60EX);
+        sprite_id:                      SPRITE_ID_NEW_TRAIN;
+        misc_flags:                     bitmask(TRAIN_FLAG_AUTOREFIT);
+
+        // Availability
+        climates_available:             ALL_CLIMATES;
+        introduction_date:              date(1990,01,01);
+        model_life:                     VEHICLE_NEVER_EXPIRES;
+        vehicle_life:                   30;
+        track_type:                     BACN;
+
+        // Cargo
+        refittable_cargo_classes:       bitmask(CC_PIECE_GOODS|CC_OVERSIZED|CC_COVERED|CC_BULK);
+        non_refittable_cargo_classes:   bitmask(CC_PASSENGERS|CC_LIQUID);
+        cargo_allow_refit:              [];
+        cargo_disallow_refit:           [YETI|YETY];
+        refit_cost:                     0;
+        default_cargo_type:             DEFAULT_CARGO_FIRST_REFITTABLE;
+        ai_special_flag:                AI_FLAG_CARGO;
+        cargo_capacity:                 60;
+        loading_speed:                  8 << param_loading_speed;
+        cargo_age_period:               185 << param_cargo_decay;
+
+        // Stats
+        speed:                          100 km/h;
+        power:                          0 hp;
+        weight:                         20 ton;
+        cost_factor:                    7;
+        running_cost_base:              RUNNING_COST_ELECTRIC;
+        running_cost_factor:            5;
+    }
+    graphics {
+        // Menu
+        additional_text:                string(STR_DESC_EXPORT, string(STR_FULL_NAME_N60EX), string(STR_LIVERY_EXPORT, string(STR_ORIGINAL)), string(STR_CAT_WAGON));
+        can_attach_wagon:               locowagon;
+
+        // Graphics
+        default:                        switch_n60ex_graphics;
+        purchase:                       spriteset_n60ex_purchase;
+        articulated_part:               switch_n60ex_articulated_part;
+
+        // Stats
+        length:                         switch_length_2_2_2;
+        cargo_capacity:                 switch_n60ex_capacity;
+        weight:                         switch_n60ex_weight;
+        purchase_cargo_capacity:        20;
+        cost_factor:                    7;
+        running_cost_factor:            5 * runningcostfactor();
+        purchase_running_cost_factor:   20;
+    }
+}
+
+// End N60EX

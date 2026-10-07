@@ -9,11 +9,12 @@
 
 ```
 data/*.csv          ──┐
-                       ├─► genpnml.py ─► src/usercode.pnml      （开关 / 精灵集 / item）
-gfx/**/*.vox        ──┘                ├─► src/vehicleid.pnml   （车辆 ID）
-                                       ├─► src/vehiclesort.pnml （采购菜单排序）
-                                       ├─► docs/str.csv         （语言字符串）
-                                       └─► gfx/<目录>/*.vox     （占位模型，含 manifest.json）
+                       ├─► genpnml.py ─┬─► src/vehiclefiles.pnml   （include 清单）
+gfx/**/*.vox        ──┘                ├─► src/<目录>/<id>.pnml   （一辆车一个文件）
+                                       ├─► src/vehicleid.pnml     （车辆 ID）
+                                       ├─► src/vehiclesort.pnml   （采购菜单排序）
+                                       ├─► docs/str.csv           （语言字符串）
+                                       └─► gfx/<目录>/*.vox       （占位模型 + manifest）
 
 gfx/**/*.vox   ──renderobject──► gfx/**/*_32bpp.png
 docs/str.csv   ──str-csv.py────► lang/*.lng
@@ -22,11 +23,43 @@ chinasettrainsexport.pnml ──gcc -E──► .nml ──nmlc──► .grf
 
 一条命令即可完成全部生成：`make gen`；完整构建：`make`。
 
+### 1.1 一辆车一个文件
+
+与《中国包：火车》一致，每辆车输出到独立的 `src/<目录>/<id>.pnml`：
+
+```
+src/diesel/ckd4a.pnml
+src/diesel/df4bex.pnml
+src/25-electric/ss8ex.pnml
+src/coaches/yz25tex.pnml
+src/wagons/c70ex.pnml
+```
+
+`src/vehiclefiles.pnml` 是这些文件的 include 清单，**顺序即采购菜单顺序**；
+主索引只 include 这一个文件：
+
+```c
+// chinasettrainsexport.pnml
+#include "src/vehiclefiles.pnml"   // 内含每辆车的 #include
+#include "src/vehiclesort.pnml"
+```
+
+由此得到的好处：
+
+* 改一辆车只动一个文件，git diff 干净，多人协作不易冲突；
+* 删除数据表里的一行后，`make gen` 依据 `src/.genpnml-manifest` 把对应的
+  `.pnml` 一并删除，不会留下孤儿文件；
+* 新增车辆时主索引**完全不变**。
+
+> 注意 include 路径是相对**索引文件**解析的，所以 `vehiclefiles.pnml` 里写的是
+> `#include "diesel/ckd4a.pnml"`，**不能**再带 `src/` 前缀（否则 gcc 会去找
+> `src/src/...`）。
+
 ---
 
 ## 2. 生成的 PNML 结构
 
-`src/usercode.pnml` 严格遵循母包的书写顺序，分为三段：
+每个 `src/<目录>/<id>.pnml` 严格遵循母包的书写顺序，分为三段：
 
 ```text
 /* SWITCHES   (callbacks, livery and cargo selection) */
@@ -45,7 +78,7 @@ spriteset (spriteset_<id>_purchase, ...) { template_purchase ("<folder>", "<base
 spriteset (spriteset_<id>_<涂装>, ...) {...}
 spriteset (spriteset_<id>_<货物>_<涂装>, ...) {...}
 
-/* VEHICLES */
+/* VEHICLE */
 item (FEAT_TRAINS, <id>) {
     property { ... }
     graphics { ... }
@@ -177,10 +210,12 @@ ID 由生成器在类别区段内顺序分配，因此：
 | 需求 | 修改位置 |
 | ---- | -------- |
 | 增加数据列 | `Vehicle` dataclass + `_build_vehicle()` + `render_item()` |
-| 改变 PNML 版式 | `Emitter` / `render_usercode()` / `render_item()` |
+| 改变 PNML 版式 | `Emitter` / `render_vehicle_file()` / `render_item()` |
+| 改变文件组织方式 | `vehicle_file_path()` 与 `render_vehiclefiles()` |
 | 改变 ID 区段 | `BANDS` 与 `BAND_COMMENT` |
 | 改变购买界面文字 | `build_additional_text()` 与 `STATIC_STRINGS` |
 | 改变占位模型形状 | `build_placeholder_vox()` 与 `SUFFIX_COLOUR` |
+| 增加输入校验 | `validate_vehicles()` |
 
 ---
 
@@ -189,15 +224,18 @@ ID 由生成器在类别区段内顺序分配，因此：
 ```bash
 make                     # 生成 + 渲染 + 语言 + 编译
 make -j 8                # 并行构建
-make gen                 # 仅从 data/ 生成 PNML 与占位 .vox
+make gen                 # 刷新语言表 + 从 data/ 生成 PNML 与占位 .vox
+make check               # 校验字符串表
 make sprites             # 仅渲染 .vox → .png
 make lang                # 仅从 docs/str.csv 生成 lang/*.lng
 make clean               # 清理构建产物
-make clean_gen           # 删除生成的 PNML
+make clean_gen           # 删除生成的所有 PNML（按清单）
 
-python3 genpnml.py --data data --out src --vox   # 等价于 make gen
+python3 genpnml.py --data data --out src --vox   # 生成
 python3 genpnml.py --strings                     # 刷新 docs/str.csv（保留已有译文）
+python3 genpnml.py --check                       # 校验字符串表
 python3 genpnml.py --clean                       # 删除生成的 PNML
-python3 tools/build_data_tables.py               # 重新生成 data/*.csv（保证 CSV 引号正确）
+python3 tools/vehicle_row.py …                   # 安全地增删/复制数据行
+python3 tools/build_data_tables.py               # 重新生成 data/*.csv
 python3 tools/verify_assets.py                   # 校验：PNML 引用的精灵是否都存在
 ```

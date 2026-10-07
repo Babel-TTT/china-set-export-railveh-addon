@@ -47,7 +47,7 @@ REPO_REVISION       := $(shell git rev-list --count HEAD || echo 1000)
 # the file min_compatible_version should either contain a commit hash or a tag
 MIN_COMPATIBLE_VERSION := $(shell git rev-list --count $$(cat min_compatible_version) || echo 0)
 
-.PHONY: all gen sprites lang custom_tags code clean clean_grf clean_png clean_gen bundle FORCE
+.PHONY: all gen check sprites lang custom_tags code clean clean_grf clean_png clean_gen bundle FORCE
 
 # default rule
 all: gen sprites lang code
@@ -55,7 +55,6 @@ all: gen sprites lang code
 # voxel paths
 VOX_FILES = $(wildcard $(VOX_DIR)/*.vox wildcard $(VOX_DIR)/*/*.vox)
 VOX_FILES += $(wildcard $(VOX_DIR)/*/*/*.vox)
-
 VOX_8BPP_FILES = $(addsuffix _8bpp.png, $(basename $(VOX_FILES)))
 VOX_32BPP_FILES = $(addsuffix _32bpp.png, $(basename $(VOX_FILES)))
 VOX_MASK_FILES = $(addsuffix _mask.png, $(basename $(VOX_FILES)))
@@ -67,9 +66,18 @@ VOX_GENERATED_FILES = $(VOX_8BPP_FILES) $(VOX_32BPP_FILES) $(VOX_MASK_FILES)
 	@$(GORENDER) -m $(dir $<)/$(MANIFEST) --palette $(dir $<)/$(PALETTE) $<
 
 # vehicle code generation
+# the string table is refreshed first, so that a newly added vehicle already
+# has its STR_NAME_<ID> rows when the code is compiled
 gen: FORCE
 	@echo "Generating vehicle PNML from $(GEN_DATA)"
+	@$(PYTHON) $(GEN_SCRIPT) --strings --strings-file $(LANG_SRC)
 	@$(PYTHON) $(GEN_SCRIPT) --data $(GEN_DATA) --out $(GEN_OUT) --vox
+
+# consistency check: every string the code uses must exist in the lang table,
+# and every row of the lang table must be used
+check: FORCE
+	@echo "Checking the language table"
+	@$(PYTHON) $(GEN_SCRIPT) --data $(GEN_DATA) --check --strings-file $(LANG_SRC)
 
 # sprites
 sprites: $(VOX_GENERATED_FILES)

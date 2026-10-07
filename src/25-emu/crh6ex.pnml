@@ -1,0 +1,126 @@
+/* ==========================================================================
+ *  China Set: Export Rail Vehicles Add-on
+ *  src/25-emu/crh6ex.pnml -- generated vehicle code
+ *
+ *  *** GENERATED FILE -- DO NOT EDIT BY HAND ***
+ *  Produced by genpnml.py from the tables in data/.
+ *  Edit data/*.csv and run `make gen` (or `python3 genpnml.py`) instead.
+ * ========================================================================== */
+
+/* ==========================================================================
+ *  SWITCHES  (callbacks, livery and cargo selection)
+ * ========================================================================== */
+
+switch (FEAT_TRAINS, SELF, switch_crh6ex_articulated_part, extra_callback_info1) {
+    1..2: return crh6ex;
+    return CB_RESULT_NO_MORE_ARTICULATED_PARTS;
+}
+
+switch (FEAT_TRAINS, SELF, switch_crh6ex_visual, position_in_articulated_veh % 3) {
+    1: return visual_effect_and_powered(VISUAL_EFFECT_ELECTRIC, 0, ENABLE_WAGON_POWER);
+    return visual_effect_and_powered(VISUAL_EFFECT_DISABLE, 0, DISABLE_WAGON_POWER);
+}
+
+switch (FEAT_TRAINS, SELF, switch_crh6ex_capacity, position_in_articulated_veh % 3) {
+    1: return 120;
+    return 0;
+}
+
+switch (FEAT_TRAINS, SELF, switch_crh6ex_power, position_in_articulated_veh % 3) {
+    1: return 3000;
+    return 0;
+}
+
+switch (FEAT_TRAINS, SELF, switch_crh6ex_weight, position_in_articulated_veh) {
+    return 40;
+}
+
+switch (FEAT_TRAINS, SELF, switch_crh6ex_graphics, position_in_articulated_veh % 3) {
+    1: spriteset_crh6ex;
+    empty_sprites;
+}
+
+/* ==========================================================================
+ *  SPRITESETS
+ * ========================================================================== */
+
+spriteset (spriteset_crh6ex, ZOOM_LEVEL_IN_4X, BIT_DEPTH_32BPP) {
+    template_standard ("25-emu", "crh6ex")
+}
+
+spriteset (spriteset_crh6ex_purchase, ZOOM_LEVEL_IN_4X, BIT_DEPTH_32BPP) {
+    template_purchase ("25-emu", "crh6ex")
+}
+
+/* ==========================================================================
+ *  VEHICLE
+ * ========================================================================== */
+
+// Begin CRH6EX
+/* name callback: series name in the depot window */
+item (FEAT_TRAINS, crh6ex) {
+    property {
+        // Menu
+        name:                           string(STR_NAME_CRH6EX);
+        sprite_id:                      SPRITE_ID_NEW_TRAIN;
+        misc_flags:                     bitmask(TRAIN_FLAG_AUTOREFIT, TRAIN_FLAG_MU);
+        engine_class:                   ENGINE_CLASS_ELECTRIC;
+
+        // Availability
+        climates_available:             ALL_CLIMATES;
+        introduction_date:              date(2012,01,01);
+        model_life:                     VEHICLE_NEVER_EXPIRES;
+        vehicle_life:                   30;
+        track_type:                     SABA;
+
+        // Cargo
+        refittable_cargo_classes:       bitmask(CC_PASSENGERS);
+        non_refittable_cargo_classes:   0;
+        cargo_allow_refit:              [];
+        cargo_disallow_refit:           [];
+        refit_cost:                     0;
+        default_cargo_type:             PASS;
+        ai_special_flag:                AI_FLAG_PASSENGER;
+        cargo_capacity:                 120;
+        loading_speed:                  10 << param_loading_speed;
+        cargo_age_period:               300 << param_cargo_decay;
+
+        // Stats
+        speed:                          200 km/h;
+        power:                          3000 kW;
+        weight:                         120 ton;
+        tractive_effort_coefficient:    0.2;
+        cost_factor:                    105;
+        running_cost_base:              RUNNING_COST_ELECTRIC;
+        running_cost_factor:            92;
+        reliability_decay:              8;
+        bitmask_vehicle_info:           bitmask(2);
+    }
+    graphics {
+        // Menu
+        additional_text:                string(STR_DESC_EXPORT, string(STR_FULL_NAME_CRH6EX), string(STR_LIVERY_EXPORT, string(STR_ORIGINAL)), string(STR_CAT_MU));
+        name:                           switch_name_series;
+        can_attach_wagon:               muhead;
+        start_stop:                     mu4to24car;
+
+        // Graphics
+        default:                        switch_crh6ex_graphics;
+        purchase:                       spriteset_crh6ex_purchase;
+        articulated_part:               switch_crh6ex_articulated_part;
+        visual_effect_and_powered:      switch_crh6ex_visual;
+
+        // Stats
+        length:                         switch_length_2_8_2;
+        cargo_capacity:                 switch_crh6ex_capacity;
+        power:                          switch_crh6ex_power;
+        weight:                         switch_crh6ex_weight;
+        purchase_cargo_capacity:        40;
+        cost_factor:                    105;
+        running_cost_factor:            92 * runningcostfactor() * cafecostfactor() + accostfactor();
+        purchase_running_cost_factor:   276;
+        purchase_speed:                 200;
+        purchase_power:                 3000;
+    }
+}
+
+// End CRH6EX

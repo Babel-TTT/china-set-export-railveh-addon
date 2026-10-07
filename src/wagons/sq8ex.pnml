@@ -1,0 +1,125 @@
+/* ==========================================================================
+ *  China Set: Export Rail Vehicles Add-on
+ *  src/wagons/sq8ex.pnml -- generated vehicle code
+ *
+ *  *** GENERATED FILE -- DO NOT EDIT BY HAND ***
+ *  Produced by genpnml.py from the tables in data/.
+ *  Edit data/*.csv and run `make gen` (or `python3 genpnml.py`) instead.
+ * ========================================================================== */
+
+/* ==========================================================================
+ *  SWITCHES  (callbacks, livery and cargo selection)
+ * ========================================================================== */
+
+switch (FEAT_TRAINS, SELF, switch_sq8ex_articulated_part, extra_callback_info1) {
+    1..2: return sq8ex;
+    return CB_RESULT_NO_MORE_ARTICULATED_PARTS;
+}
+
+switch (FEAT_TRAINS, SELF, switch_sq8ex_coal_stage, cargo_count) {
+    0..5: spriteset_sq8ex;
+    6..50: spriteset_sq8ex_sq8ex_coal;
+    spriteset_sq8ex_sq8ex_coal;
+}
+
+switch (FEAT_TRAINS, SELF, switch_sq8ex_cargo_class, cargo_classes) {
+    bitmask(CC_BULK): switch_sq8ex_coal_stage;
+    spriteset_sq8ex;
+}
+
+switch (FEAT_TRAINS, SELF, switch_sq8ex_empty, cargo_count < 5) {
+    0: switch_sq8ex_cargo_class;
+    spriteset_sq8ex;
+}
+
+switch (FEAT_TRAINS, SELF, switch_sq8ex_capacity, position_in_articulated_veh % 3) {
+    1: return 75;
+    return 0;
+}
+
+switch (FEAT_TRAINS, SELF, switch_sq8ex_weight, position_in_articulated_veh) {
+    return 7;
+}
+
+switch (FEAT_TRAINS, SELF, switch_sq8ex_graphics, position_in_articulated_veh % 3) {
+    1: switch_sq8ex_empty;
+    empty_sprites;
+}
+
+/* ==========================================================================
+ *  SPRITESETS
+ * ========================================================================== */
+
+spriteset (spriteset_sq8ex, ZOOM_LEVEL_IN_4X, BIT_DEPTH_32BPP) {
+    template_standard ("wagons", "sq8ex")
+}
+
+spriteset (spriteset_sq8ex_purchase, ZOOM_LEVEL_IN_4X, BIT_DEPTH_32BPP) {
+    template_purchase ("wagons", "sq8ex")
+}
+
+spriteset (spriteset_sq8ex_sq8ex_coal, ZOOM_LEVEL_IN_4X, BIT_DEPTH_32BPP) {
+    template_standard ("wagons", "sq8ex-coal")
+}
+
+/* ==========================================================================
+ *  VEHICLE
+ * ========================================================================== */
+
+// Begin SQ8EX
+item (FEAT_TRAINS, sq8ex) {
+    property {
+        // Menu
+        name:                           string(STR_NAME_SQ8EX);
+        sprite_id:                      SPRITE_ID_NEW_TRAIN;
+        misc_flags:                     bitmask(TRAIN_FLAG_AUTOREFIT);
+
+        // Availability
+        climates_available:             ALL_CLIMATES;
+        introduction_date:              date(2005,01,01);
+        model_life:                     VEHICLE_NEVER_EXPIRES;
+        vehicle_life:                   30;
+        track_type:                     SACN;
+
+        // Cargo
+        refittable_cargo_classes:       bitmask(CC_BULK);
+        non_refittable_cargo_classes:   bitmask(CC_PASSENGERS|CC_LIQUID|CC_PIECE_GOODS);
+        cargo_allow_refit:              [];
+        cargo_disallow_refit:           [YETI|YETY];
+        refit_cost:                     0;
+        default_cargo_type:             COAL;
+        ai_special_flag:                AI_FLAG_CARGO;
+        cargo_capacity:                 75;
+        loading_speed:                  10 << param_loading_speed;
+        cargo_age_period:               185 << param_cargo_decay;
+
+        // Stats
+        speed:                          120 km/h;
+        power:                          0 hp;
+        weight:                         23 ton;
+        cost_factor:                    9;
+        running_cost_base:              RUNNING_COST_ELECTRIC;
+        running_cost_factor:            6;
+    }
+    graphics {
+        // Menu
+        additional_text:                string(STR_DESC_EXPORT, string(STR_FULL_NAME_SQ8EX), string(STR_LIVERY_EXPORT, string(STR_ORIGINAL)), string(STR_CAT_WAGON));
+        can_attach_wagon:               locowagon;
+
+        // Graphics
+        default:                        switch_sq8ex_graphics;
+        purchase:                       spriteset_sq8ex_purchase;
+        articulated_part:               switch_sq8ex_articulated_part;
+
+        // Stats
+        length:                         switch_length_2_2_2;
+        cargo_capacity:                 switch_sq8ex_capacity;
+        weight:                         switch_sq8ex_weight;
+        purchase_cargo_capacity:        25;
+        cost_factor:                    9;
+        running_cost_factor:            6 * runningcostfactor();
+        purchase_running_cost_factor:   22;
+    }
+}
+
+// End SQ8EX

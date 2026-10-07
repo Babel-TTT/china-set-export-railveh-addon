@@ -89,7 +89,13 @@ Vehicles are **data**, not code.  To add one:
 
 1. add a row to `data/locomotives.csv`, `data/coaches.csv`, `data/wagons.csv`
    or `data/unit_wagons.csv` (see [data/README.md](data/README.md) for every
-   column),
+   column).  `tools/vehicle_row.py` writes the row with correct CSV quoting:
+
+   ```bash
+   python3 tools/vehicle_row.py copy data/locomotives.csv ckd4a ckd8w \
+       name_string="CKD8W (Export)" intro_year=2022
+   ```
+
 2. optionally add livery rows to `data/liveries.csv` and appearance rows to
    `data/cargo_variants.csv`,
 3. run `make gen` — the ID, the switch chains, the spritesets, the menu order
@@ -99,8 +105,20 @@ Vehicles are **data**, not code.  To add one:
    already writes a placeholder model for each of them, so the project builds
    before any artwork exists.
 
-Nothing in `src/usercode.pnml`, `src/vehicleid.pnml` or `src/vehiclesort.pnml`
-is meant to be edited by hand — those files are overwritten on every build.
+**One vehicle, one file.**  Each vehicle gets its own generated file at
+`src/<folder>/<id>.pnml`, listed by `src/vehiclefiles.pnml` and included from
+`chinasettrainsexport.pnml`, exactly like the parent set.  Changing a vehicle
+therefore touches exactly one file, and `make gen` deletes the file again when
+the row is removed.
+
+Never edit the generated files by hand — `src/<folder>/*.pnml`,
+`src/vehiclefiles.pnml`, `src/vehicleid.pnml` and `src/vehiclesort.pnml` are all
+overwritten on every build.  They are tracked in git on purpose, so that a
+checkout can be compiled without running python and so that changes to
+generated code show up in review.
+
+`make check` verifies that every string the code uses exists in `docs/str.csv`
+and that no row of `docs/str.csv` is dead.
 
 ## 4. License
 

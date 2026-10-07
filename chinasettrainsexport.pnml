@@ -26,8 +26,10 @@
 #include "src/vehicleid.pnml"
 
 // >>> GENERATED VEHICLES (do not edit, run `make gen`) >>>
-// Every vehicle is emitted into a single generated file; the order
-// inside it follows the row order of the tables in data/.
-#include "src/usercode.pnml"
+// One generated file per vehicle; src/vehiclefiles.pnml lists them all
+// in purchase menu order.
+#include "src/vehiclefiles.pnml"
+
+// Purchase menu order.
 #include "src/vehiclesort.pnml"
 // <<< GENERATED VEHICLES <<<

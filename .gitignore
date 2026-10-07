@@ -11,3 +11,8 @@ gfx/**/*.png
 !gfx/empty.png
 !gfx/empty_32bpp.png
 *.lng
+
+# record of the files genpnml.py wrote, used to clean up orphans.
+# The generated .pnml files themselves ARE tracked, so that a checkout without
+# python can still be compiled and so that diffs of generated code are visible.
+src/.genpnml-manifest

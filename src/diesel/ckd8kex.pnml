@@ -1,0 +1,93 @@
+/* ==========================================================================
+ *  China Set: Export Rail Vehicles Add-on
+ *  src/diesel/ckd8kex.pnml -- generated vehicle code
+ *
+ *  *** GENERATED FILE -- DO NOT EDIT BY HAND ***
+ *  Produced by genpnml.py from the tables in data/.
+ *  Edit data/*.csv and run `make gen` (or `python3 genpnml.py`) instead.
+ * ========================================================================== */
+
+/* ==========================================================================
+ *  SWITCHES  (callbacks, livery and cargo selection)
+ * ========================================================================== */
+
+switch (FEAT_TRAINS, SELF, switch_ckd8kex_visual, position_in_articulated_veh % 1) {
+    0: return visual_effect_and_powered(VISUAL_EFFECT_DIESEL, 0, ENABLE_WAGON_POWER);
+    return visual_effect_and_powered(VISUAL_EFFECT_DISABLE, 0, DISABLE_WAGON_POWER);
+}
+
+/* ==========================================================================
+ *  SPRITESETS
+ * ========================================================================== */
+
+spriteset (spriteset_ckd8kex, ZOOM_LEVEL_IN_4X, BIT_DEPTH_32BPP) {
+    template_standard ("diesel", "ckd8kex")
+}
+
+spriteset (spriteset_ckd8kex_purchase, ZOOM_LEVEL_IN_4X, BIT_DEPTH_32BPP) {
+    template_purchase ("diesel", "ckd8kex")
+}
+
+/* ==========================================================================
+ *  VEHICLE
+ * ========================================================================== */
+
+// Begin CKD8KEX
+/* name callback: series name in the depot window */
+item (FEAT_TRAINS, ckd8kex) {
+    property {
+        // Menu
+        name:                           string(STR_NAME_CKD8KEX);
+        sprite_id:                      SPRITE_ID_NEW_TRAIN;
+        misc_flags:                     bitmask(TRAIN_FLAG_AUTOREFIT);
+        engine_class:                   ENGINE_CLASS_DIESEL;
+
+        // Availability
+        climates_available:             ALL_CLIMATES;
+        introduction_date:              date(2012,01,01);
+        model_life:                     VEHICLE_NEVER_EXPIRES;
+        vehicle_life:                   30;
+        track_type:                     BACN;
+
+        // Cargo
+        refittable_cargo_classes:       bitmask(CC_PASSENGERS);
+        non_refittable_cargo_classes:   0;
+        cargo_allow_refit:              [];
+        cargo_disallow_refit:           [];
+        refit_cost:                     0;
+        default_cargo_type:             PASS;
+        ai_special_flag:                AI_FLAG_PASSENGER;
+        cargo_capacity:                 1;
+        loading_speed:                  8 << param_loading_speed;
+        cargo_age_period:               185 << param_cargo_decay;
+
+        // Stats
+        speed:                          120 km/h;
+        power:                          2500 kW;
+        weight:                         144 ton;
+        tractive_effort_coefficient:    0.25;
+        cost_factor:                    76;
+        running_cost_base:              RUNNING_COST_DIESEL;
+        running_cost_factor:            64;
+        reliability_decay:              10;
+        bitmask_vehicle_info:           bitmask(2);
+    }
+    graphics {
+        // Menu
+        additional_text:                string(STR_DESC_EXPORT, string(STR_FULL_NAME_CKD8KEX), string(STR_LIVERY_EXPORT, string(STR_ORIGINAL)), string(STR_CAT_LOCO));
+        name:                           switch_name_series;
+        can_attach_wagon:               locowagon;
+
+        // Graphics
+        default:                        spriteset_ckd8kex;
+        purchase:                       spriteset_ckd8kex_purchase;
+        visual_effect_and_powered:      switch_ckd8kex_visual;
+
+        // Stats
+        cost_factor:                    76;
+        running_cost_factor:            64 * runningcostfactor();
+        purchase_running_cost_factor:   192;
+    }
+}
+
+// End CKD8KEX

@@ -1,0 +1,125 @@
+/* ==========================================================================
+ *  China Set: Export Rail Vehicles Add-on
+ *  src/diesel/df4bex.pnml -- generated vehicle code
+ *
+ *  *** GENERATED FILE -- DO NOT EDIT BY HAND ***
+ *  Produced by genpnml.py from the tables in data/.
+ *  Edit data/*.csv and run `make gen` (or `python3 genpnml.py`) instead.
+ * ========================================================================== */
+
+/* ==========================================================================
+ *  SWITCHES  (callbacks, livery and cargo selection)
+ * ========================================================================== */
+
+switch (FEAT_TRAINS, SELF, switch_df4bex_cargo_subtype, cargo_subtype) {
+    0: return string(STR_BUILD_YEAR);
+    1: return string(STR_DPRK_LIVERY);
+    2: return string(STR_UKRAINE_LIVERY);
+    return CB_RESULT_NO_TEXT;
+}
+
+switch (FEAT_TRAINS, SELF, switch_df4bex_visual, position_in_articulated_veh % 1) {
+    0: return visual_effect_and_powered(VISUAL_EFFECT_DIESEL, 0, ENABLE_WAGON_POWER);
+    return visual_effect_and_powered(VISUAL_EFFECT_DISABLE, 0, DISABLE_WAGON_POWER);
+}
+
+switch (FEAT_TRAINS, SELF, switch_df4bex_livery, cargo_subtype) {
+    0: spriteset_df4bex_dprk;
+    1: spriteset_df4bex_dprk;
+    2: spriteset_df4bex_ukraine;
+    spriteset_df4bex_dprk;
+}
+
+/* ==========================================================================
+ *  SPRITESETS
+ * ========================================================================== */
+
+spriteset (spriteset_df4bex, ZOOM_LEVEL_IN_4X, BIT_DEPTH_32BPP) {
+    template_standard ("diesel", "df4bex")
+}
+
+spriteset (spriteset_df4bex_purchase, ZOOM_LEVEL_IN_4X, BIT_DEPTH_32BPP) {
+    template_purchase ("diesel", "df4bex")
+}
+
+spriteset (spriteset_df4bex_dprk, ZOOM_LEVEL_IN_4X, BIT_DEPTH_32BPP) {
+    template_standard ("diesel", "df4bex-dprk")
+}
+
+spriteset (spriteset_df4bex_purchase_dprk, ZOOM_LEVEL_IN_4X, BIT_DEPTH_32BPP) {
+    template_purchase ("diesel", "df4bex-dprk")
+}
+
+spriteset (spriteset_df4bex_ukraine, ZOOM_LEVEL_IN_4X, BIT_DEPTH_32BPP) {
+    template_standard ("diesel", "df4bex-ukraine")
+}
+
+spriteset (spriteset_df4bex_purchase_ukraine, ZOOM_LEVEL_IN_4X, BIT_DEPTH_32BPP) {
+    template_purchase ("diesel", "df4bex-ukraine")
+}
+
+/* ==========================================================================
+ *  VEHICLE
+ * ========================================================================== */
+
+// Begin DF4BEX
+/* name callback: series name in the depot window */
+item (FEAT_TRAINS, df4bex) {
+    property {
+        // Menu
+        name:                           string(STR_NAME_DF4BEX);
+        sprite_id:                      SPRITE_ID_NEW_TRAIN;
+        misc_flags:                     bitmask(TRAIN_FLAG_AUTOREFIT);
+        engine_class:                   ENGINE_CLASS_DIESEL;
+
+        // Availability
+        climates_available:             ALL_CLIMATES;
+        introduction_date:              date(1985,01,01);
+        model_life:                     50;
+        retire_early:                   30;
+        vehicle_life:                   30;
+        track_type:                     SACN;
+
+        // Cargo
+        refittable_cargo_classes:       bitmask(CC_PASSENGERS);
+        non_refittable_cargo_classes:   0;
+        cargo_allow_refit:              [];
+        cargo_disallow_refit:           [];
+        refit_cost:                     0;
+        default_cargo_type:             PASS;
+        ai_special_flag:                AI_FLAG_PASSENGER;
+        cargo_capacity:                 1;
+        loading_speed:                  8 << param_loading_speed;
+        cargo_age_period:               185 << param_cargo_decay;
+
+        // Stats
+        speed:                          100 km/h;
+        power:                          1985 kW;
+        weight:                         138 ton;
+        tractive_effort_coefficient:    0.24;
+        cost_factor:                    60;
+        running_cost_base:              RUNNING_COST_DIESEL;
+        running_cost_factor:            55;
+        reliability_decay:              12;
+        bitmask_vehicle_info:           bitmask(2);
+    }
+    graphics {
+        // Menu
+        additional_text:                string(STR_DESC_EXPORT, string(STR_FULL_NAME_DF4BEX), string(STR_LIVERY_EXPORT, string(STR_DPRK_LIVERY), string(STR_UKRAINE_LIVERY)), string(STR_CAT_LOCO));
+        name:                           switch_name_series;
+        cargo_subtype_text:             switch_df4bex_cargo_subtype;
+        can_attach_wagon:               locowagon;
+
+        // Graphics
+        default:                        switch_df4bex_livery;
+        purchase:                       spriteset_df4bex_purchase;
+        visual_effect_and_powered:      switch_df4bex_visual;
+
+        // Stats
+        cost_factor:                    60;
+        running_cost_factor:            55 * runningcostfactor();
+        purchase_running_cost_factor:   165;
+    }
+}
+
+// End DF4BEX

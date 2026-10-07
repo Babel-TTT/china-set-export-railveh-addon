@@ -1,0 +1,210 @@
+/* ==========================================================================
+ *  China Set: Export Rail Vehicles Add-on
+ *  src/wagons/c70ex.pnml -- generated vehicle code
+ *
+ *  *** GENERATED FILE -- DO NOT EDIT BY HAND ***
+ *  Produced by genpnml.py from the tables in data/.
+ *  Edit data/*.csv and run `make gen` (or `python3 genpnml.py`) instead.
+ * ========================================================================== */
+
+/* ==========================================================================
+ *  SWITCHES  (callbacks, livery and cargo selection)
+ * ========================================================================== */
+
+switch (FEAT_TRAINS, SELF, switch_c70ex_cargo_subtype, cargo_subtype) {
+    0: return string(STR_BUILD_YEAR);
+    1: return string(STR_EXPORT_GRAY);
+    return CB_RESULT_NO_TEXT;
+}
+
+switch (FEAT_TRAINS, SELF, switch_c70ex_articulated_part, extra_callback_info1) {
+    1..2: return c70ex;
+    return CB_RESULT_NO_MORE_ARTICULATED_PARTS;
+}
+
+switch (FEAT_TRAINS, SELF, switch_c70ex_coal_stage, cargo_count) {
+    0..5: spriteset_c70ex;
+    6..45: spriteset_c70ex_c70ex_coal;
+    spriteset_c70ex_c70ex_coal;
+}
+
+switch (FEAT_TRAINS, SELF, switch_c70ex_cont_stage, cargo_count) {
+    0..5: spriteset_c70ex;
+    6..40: spriteset_c70ex_c70ex_container;
+    spriteset_c70ex_c70ex_container;
+}
+
+switch (FEAT_TRAINS, SELF, switch_c70ex_cargo_class, cargo_classes) {
+    bitmask(CC_BULK): switch_c70ex_coal_stage;
+    bitmask(CC_MAIL): switch_c70ex_cont_stage;
+    bitmask(CC_EXPRESS): switch_c70ex_cont_stage;
+    bitmask(CC_COVERED): spriteset_c70ex_c70ex_cover;
+    bitmask(CC_PIECE_GOODS): spriteset_c70ex_c70ex_cover;
+    bitmask(CC_OVERSIZED): spriteset_c70ex_c70ex_cover;
+    spriteset_c70ex;
+}
+
+switch (FEAT_TRAINS, SELF, switch_c70ex_empty, cargo_count < 5) {
+    0: switch_c70ex_cargo_class;
+    spriteset_c70ex;
+}
+
+switch (FEAT_TRAINS, SELF, switch_c70ex_gray_coal_stage, cargo_count) {
+    0..5: spriteset_c70ex_gray;
+    6..45: spriteset_c70ex_c70ex_coal_gray;
+    spriteset_c70ex_c70ex_coal_gray;
+}
+
+switch (FEAT_TRAINS, SELF, switch_c70ex_gray_cont_stage, cargo_count) {
+    0..5: spriteset_c70ex_gray;
+    6..40: spriteset_c70ex_c70ex_container_gray;
+    spriteset_c70ex_c70ex_container_gray;
+}
+
+switch (FEAT_TRAINS, SELF, switch_c70ex_gray_cargo_class, cargo_classes) {
+    bitmask(CC_BULK): switch_c70ex_gray_coal_stage;
+    bitmask(CC_MAIL): switch_c70ex_gray_cont_stage;
+    bitmask(CC_EXPRESS): switch_c70ex_gray_cont_stage;
+    bitmask(CC_COVERED): spriteset_c70ex_c70ex_cover_gray;
+    bitmask(CC_PIECE_GOODS): spriteset_c70ex_c70ex_cover_gray;
+    bitmask(CC_OVERSIZED): spriteset_c70ex_c70ex_cover_gray;
+    spriteset_c70ex_gray;
+}
+
+switch (FEAT_TRAINS, SELF, switch_c70ex_gray_empty, cargo_count < 5) {
+    0: switch_c70ex_gray_cargo_class;
+    spriteset_c70ex_gray;
+}
+
+switch (FEAT_TRAINS, SELF, switch_c70ex_cargo_livery, cargo_subtype) {
+    0: switch_c70ex_empty;
+    1: switch_c70ex_gray_empty;
+    switch_c70ex_empty;
+}
+
+switch (FEAT_TRAINS, SELF, switch_c70ex_capacity, position_in_articulated_veh % 3) {
+    1: return 70;
+    return 0;
+}
+
+switch (FEAT_TRAINS, SELF, switch_c70ex_weight, position_in_articulated_veh) {
+    return 8;
+}
+
+switch (FEAT_TRAINS, SELF, switch_c70ex_livery, cargo_subtype) {
+    0: switch_c70ex_cargo_livery;
+    1: switch_c70ex_cargo_livery;
+    switch_c70ex_cargo_livery;
+}
+
+switch (FEAT_TRAINS, SELF, switch_c70ex_graphics, position_in_articulated_veh % 3) {
+    1: switch_c70ex_livery;
+    empty_sprites;
+}
+
+/* ==========================================================================
+ *  SPRITESETS
+ * ========================================================================== */
+
+spriteset (spriteset_c70ex, ZOOM_LEVEL_IN_4X, BIT_DEPTH_32BPP) {
+    template_standard ("wagons", "c70ex")
+}
+
+spriteset (spriteset_c70ex_purchase, ZOOM_LEVEL_IN_4X, BIT_DEPTH_32BPP) {
+    template_purchase ("wagons", "c70ex")
+}
+
+spriteset (spriteset_c70ex_c70ex_coal, ZOOM_LEVEL_IN_4X, BIT_DEPTH_32BPP) {
+    template_standard ("wagons", "c70ex-coal")
+}
+
+spriteset (spriteset_c70ex_c70ex_container, ZOOM_LEVEL_IN_4X, BIT_DEPTH_32BPP) {
+    template_standard ("wagons", "c70ex-container")
+}
+
+spriteset (spriteset_c70ex_c70ex_cover, ZOOM_LEVEL_IN_4X, BIT_DEPTH_32BPP) {
+    template_standard ("wagons", "c70ex-cover")
+}
+
+spriteset (spriteset_c70ex_gray, ZOOM_LEVEL_IN_4X, BIT_DEPTH_32BPP) {
+    template_standard ("wagons", "c70ex-gray")
+}
+
+spriteset (spriteset_c70ex_purchase_gray, ZOOM_LEVEL_IN_4X, BIT_DEPTH_32BPP) {
+    template_purchase ("wagons", "c70ex-gray")
+}
+
+spriteset (spriteset_c70ex_c70ex_coal_gray, ZOOM_LEVEL_IN_4X, BIT_DEPTH_32BPP) {
+    template_standard ("wagons", "c70ex-coal-gray")
+}
+
+spriteset (spriteset_c70ex_c70ex_container_gray, ZOOM_LEVEL_IN_4X, BIT_DEPTH_32BPP) {
+    template_standard ("wagons", "c70ex-container-gray")
+}
+
+spriteset (spriteset_c70ex_c70ex_cover_gray, ZOOM_LEVEL_IN_4X, BIT_DEPTH_32BPP) {
+    template_standard ("wagons", "c70ex-cover-gray")
+}
+
+/* ==========================================================================
+ *  VEHICLE
+ * ========================================================================== */
+
+// Begin C70EX
+item (FEAT_TRAINS, c70ex) {
+    property {
+        // Menu
+        name:                           string(STR_NAME_C70EX);
+        sprite_id:                      SPRITE_ID_NEW_TRAIN;
+        misc_flags:                     bitmask(TRAIN_FLAG_AUTOREFIT);
+
+        // Availability
+        climates_available:             ALL_CLIMATES;
+        introduction_date:              date(2005,01,01);
+        model_life:                     VEHICLE_NEVER_EXPIRES;
+        vehicle_life:                   30;
+        track_type:                     SACN;
+
+        // Cargo
+        refittable_cargo_classes:       bitmask(CC_MAIL|CC_EXPRESS|CC_BULK|CC_PIECE_GOODS|CC_COVERED|CC_OVERSIZED);
+        non_refittable_cargo_classes:   bitmask(CC_PASSENGERS|CC_LIQUID|CC_HAZARDOUS);
+        cargo_allow_refit:              [];
+        cargo_disallow_refit:           [YETI|YETY];
+        refit_cost:                     0;
+        default_cargo_type:             DEFAULT_CARGO_FIRST_REFITTABLE;
+        ai_special_flag:                AI_FLAG_CARGO;
+        cargo_capacity:                 70;
+        loading_speed:                  8 << param_loading_speed;
+        cargo_age_period:               185 << param_cargo_decay;
+
+        // Stats
+        speed:                          120 km/h;
+        power:                          0 hp;
+        weight:                         23.8 ton;
+        cost_factor:                    6;
+        running_cost_base:              RUNNING_COST_ELECTRIC;
+        running_cost_factor:            5;
+    }
+    graphics {
+        // Menu
+        additional_text:                string(STR_DESC_EXPORT, string(STR_FULL_NAME_C70EX), string(STR_LIVERY_EXPORT, string(STR_EXPORT_GRAY)), string(STR_CAT_WAGON));
+        cargo_subtype_text:             switch_c70ex_cargo_subtype;
+        can_attach_wagon:               locowagon;
+
+        // Graphics
+        default:                        switch_c70ex_graphics;
+        purchase:                       spriteset_c70ex_purchase;
+        articulated_part:               switch_c70ex_articulated_part;
+
+        // Stats
+        length:                         switch_length_2_2_2;
+        cargo_capacity:                 switch_c70ex_capacity;
+        weight:                         switch_c70ex_weight;
+        purchase_cargo_capacity:        70;
+        cost_factor:                    6;
+        running_cost_factor:            5 * runningcostfactor();
+        purchase_running_cost_factor:   20;
+    }
+}
+
+// End C70EX
