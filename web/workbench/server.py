@@ -36,6 +36,7 @@ import subprocess
 import sys
 import threading
 import time
+import traceback
 import uuid
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -1117,10 +1118,20 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
                                              for key, value in COMMANDS.items()}})
                 return
             self.serve_static(parsed.path)
+        except (ConnectionAbortedError, ConnectionResetError, BrokenPipeError):
+            # the browser closed the socket while the response was being
+            # written; that is normal on a refresh and is not an error
+            return
         except FileNotFoundError as error:
+            self.log_error("GET %s: %s", self.path, error)
             self.send_json({"error": str(error)}, HTTPStatus.NOT_FOUND)
         except (OSError, ValueError) as error:
-            self.send_json({"error": str(error)}, HTTPStatus.BAD_REQUEST)
+            # a real failure: without the traceback a 400 here cannot be
+            # diagnosed, because the message alone does not name the reader
+            self.log_error("GET %s failed: %s: %s", self.path, type(error).__name__, error)
+            traceback.print_exc()
+            self.send_json({"error": "%s: %s" % (type(error).__name__, error)},
+                           HTTPStatus.BAD_REQUEST)
 
     def serve_static(self, path: str) -> None:
         if path in ("", "/", "/workbench", "/workbench/"):
@@ -1162,9 +1173,12 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
                 self.send_json(start_job(str(payload.get("action") or "")))
             else:
                 self.send_error(HTTPStatus.NOT_FOUND, "unknown API endpoint")
+        except (ConnectionAbortedError, ConnectionResetError, BrokenPipeError):
+            return
         except FileNotFoundError as error:
             self.send_json({"error": str(error)}, HTTPStatus.NOT_FOUND)
         except (OSError, ValueError, RuntimeError, KeyError, json.JSONDecodeError) as error:
+            self.log_error("POST %s failed: %s: %s", self.path, type(error).__name__, error)
             self.send_json({"error": str(error)}, HTTPStatus.BAD_REQUEST)
 
 
