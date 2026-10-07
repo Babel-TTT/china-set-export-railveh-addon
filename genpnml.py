@@ -337,6 +337,8 @@ class Vehicle:
     power_section: int = 0
     # one rule list per section; see parse_graphics_parts()
     graphics_parts: List[List[Tuple[str, str]]] = field(default_factory=list)
+    # shortest train an MU may be started as, in three car units; 0 disables
+    min_cars: int = 0
     ac_supply: bool = False
     airconditioned: bool = False
     restaurant: bool = False
@@ -498,6 +500,9 @@ def _build_vehicle(
             "当前是 %r" % (vehicle_id, model))
 
     graphics_parts = parse_graphics_parts(row.get("graphics_parts", ""), len(parts))
+    min_cars = _int(row.get("min_cars", ""), 0)
+    if min_cars < 0:
+        raise ValueError("%s: min_cars 不能为负" % vehicle_id)
 
     vehicle = Vehicle(
         id=vehicle_id,
@@ -539,6 +544,7 @@ def _build_vehicle(
         parts=parts,
         power_section=power_section,
         graphics_parts=graphics_parts,
+        min_cars=min_cars,
         ac_supply=_bool(row.get("ac_supply", ""), False),
         airconditioned=_bool(row.get("airconditioned", ""), False),
         restaurant=_bool(row.get("restaurant", ""), False),
@@ -808,6 +814,7 @@ def emit_vehicle(sprites: Emitter, switches: Emitter, items: Emitter,
     # deliberately *not* distributed -- they are plain properties, see
     # render_item().
     capacity_switch = _emit_capacity_switch(switches, vehicle)
+    start_stop_switch = _emit_start_stop(switches, vehicle)
 
     # ---- livery graphics chain ---------------------------------------
     if vehicle.cargo_variants and cargo_root:
@@ -842,7 +849,8 @@ def emit_vehicle(sprites: Emitter, switches: Emitter, items: Emitter,
         default_graphics = livery_root
 
     # ---- item ---------------------------------------------------------
-    items.add(render_item(vehicle, default_graphics, capacity_switch, livery_root))
+    items.add(render_item(vehicle, default_graphics, capacity_switch,
+                          start_stop_switch, livery_root))
 
 
 def _emit_livery_switch(emitter: Emitter, vehicle: Vehicle,
@@ -1038,7 +1046,8 @@ def _num(value: float) -> str:
 
 
 def render_item(vehicle: Vehicle, default_graphics: str,
-                capacity_switch: Optional[str], livery_root: str) -> str:
+                capacity_switch: Optional[str], start_stop_switch: str,
+                livery_root: str) -> str:
     vid = vehicle.id
     is_loco = vehicle.is_locomotive
     lines: List[str] = []
@@ -1126,8 +1135,8 @@ def render_item(vehicle: Vehicle, default_graphics: str,
     if len(vehicle.liveries) > 1:
         add("        cargo_subtype_text:             switch_%s_cargo_subtype;" % vid)
     add("        can_attach_wagon:               %s;" % _attach_switch(vehicle))
-    if vehicle.mu:
-        add("        start_stop:                     mu4to24car;")
+    if start_stop_switch:
+        add("        start_stop:                     %s;" % start_stop_switch)
 
     # graphics
     add("")
@@ -1226,6 +1235,44 @@ def _attach_switch(vehicle: Vehicle) -> str:
     if vehicle.category in MU_CATEGORIES or vehicle.category == "unit_wagon":
         return "muhead"
     return "locowagon"
+
+
+def _emit_start_stop(emitter: Emitter, vehicle: Vehicle) -> str:
+    """Build the ``start_stop`` switch that gates a multiple unit.
+
+    A multiple unit is bought as one three car unit and coupled until the train
+    is as long as the player wants, so the only length rules that make sense are
+    "at least N units" and "whole units only".  The parent set instead allows
+    only 4 to 24 cars, which blocks a two unit train; this replaces that with
+    the two rules an EMU actually needs, written as nested switches because a
+    switch has a single selector and a single comparison.
+
+    Returns the switch name, or ``""`` when the vehicle is not a multiple unit.
+    """
+    if not vehicle.mu:
+        return ""
+    vid = vehicle.id
+    units = 3                        # one unit is three sections
+    nothing = "CB_RESULT_NO_TEXT"
+
+    # "whole units only": the part count has to divide by three
+    units_switch = "switch_%s_whole_units" % vid
+    emitter.switch(units_switch, "(num_vehs_in_consist % 3) != 0",
+                   [("1", "return string(STR_MUST_BE_MULTIPLE_OF_3)")],
+                   "return %s" % nothing)
+
+    if vehicle.min_cars <= 0:
+        # no minimum asked for: multiples of three may be one unit long
+        return units_switch
+
+    length_switch = "switch_%s_start_stop" % vid
+    emitter.switch(
+        length_switch,
+        "num_vehs_in_consist < %d" % (vehicle.min_cars * units),
+        [("1", "return string(STR_MUST_BE_4_TO_24_CARS)")],
+        "return %s" % units_switch,
+    )
+    return length_switch
 
 
 def emit_livery_callbacks(emitter: Emitter, vehicles: Sequence[Vehicle]) -> None:
@@ -2020,6 +2067,9 @@ STATIC_STRINGS: List[Tuple[str, str, str]] = [
     ("STR_RELDEC_HIGH", "Reliability decay: high ({STRING})", "可靠性衰减：高（{STRING}）"),
     ("STR_TOO_SHORT", "This train is too short", "列车过短"),
     ("STR_MUST_BE_4_TO_24_CARS", "This train must have 4 to 24 cars", "列车必须为4至24节"),
+    ("STR_MUST_BE_MULTIPLE_OF_3",
+     "This train must be a whole number of three car units",
+     "列车必须由整数个三节单元组成"),
     # the GRF description is assembled from four nested strings
     ("STR_DESC_4", "{STRING}{}{STRING}{}{STRING}{}{STRING}", ""),
     # purchase window description.  NML strings only accept *string* arguments

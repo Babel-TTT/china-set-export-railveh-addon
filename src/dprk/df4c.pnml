@@ -1,6 +1,6 @@
 /* ==========================================================================
  *  China Set: Export Rail Vehicles Add-on
- *  src/diesel/df4c.pnml -- generated vehicle code
+ *  src/dprk/df4c.pnml -- generated vehicle code
  *
  *  *** GENERATED FILE -- DO NOT EDIT BY HAND ***
  *  Produced by genpnml.py from the tables in data/.
@@ -22,7 +22,7 @@ switch (FEAT_TRAINS, SELF, switch_df4c_capacity, position_in_articulated_veh % 3
 }
 
 switch (FEAT_TRAINS, SELF, switch_df4c_graphics, position_in_articulated_veh % 3) {
-    1: spriteset_df4c;
+    1: spriteset_df4c_origin;
     empty_sprites;
 }
 
@@ -30,12 +30,12 @@ switch (FEAT_TRAINS, SELF, switch_df4c_graphics, position_in_articulated_veh % 3
  *  SPRITESETS
  * ========================================================================== */
 
-spriteset (spriteset_df4c, ZOOM_LEVEL_IN_4X, BIT_DEPTH_32BPP) {
-    template_standard ("diesel", "df4c")
+spriteset (spriteset_df4c_origin, ZOOM_LEVEL_IN_4X, BIT_DEPTH_32BPP) {
+    template_standard ("dprk", "df4c-origin")
 }
 
-spriteset (spriteset_df4c_purchase, ZOOM_LEVEL_IN_4X, BIT_DEPTH_32BPP) {
-    template_purchase ("diesel", "df4c")
+spriteset (spriteset_df4c_purchase_origin, ZOOM_LEVEL_IN_4X, BIT_DEPTH_32BPP) {
+    template_purchase ("dprk", "df4c-origin")
 }
 
 /* ==========================================================================
@@ -89,7 +89,7 @@ item (FEAT_TRAINS, df4c) {
 
         // Graphics
         default:                        switch_df4c_graphics;
-        purchase:                       spriteset_df4c_purchase;
+        purchase:                       spriteset_df4c_purchase_origin;
         articulated_part:               switch_df4c_articulated_part;
 
         // Stats

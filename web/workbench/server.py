@@ -260,6 +260,7 @@ def validate_vehicle_row(table: str, row: dict, others, is_new: bool):
         "cost_factor": (0, 100000), "running_cost_factor": (0, 100000),
         "capacity": (0, 100000), "loading_speed": (0, 10000),
         "cargo_age_period": (0, 100000), "vehicle_life": (0, 1000),
+        "min_cars": (0, 200),
     }
     for column, (low, high) in numeric.items():
         value = (row.get(column) or "").strip()
@@ -276,6 +277,14 @@ def validate_vehicle_row(table: str, row: dict, others, is_new: bool):
     life = (row.get("model_life") or "").strip()
     if life and life != "VEHICLE_NEVER_EXPIRES" and not life.isdigit():
         errors.append("model_life 只能是年数或 VEHICLE_NEVER_EXPIRES：%r" % life)
+
+    # min_cars only produces a start_stop switch on a multiple unit
+    min_cars = (row.get("min_cars") or "").strip()
+    if min_cars and min_cars.isdigit() and int(min_cars) > 0:
+        mu = (row.get("mu") or "").strip().lower()
+        if mu not in ("1", "y", "yes", "true", "t", "on"):
+            errors.append("min_cars=%s 只在 mu=1（动车组）时生效，当前 mu=%r"
+                          % (min_cars, row.get("mu", "")))
 
     track = (row.get("track_type") or "").strip()
     if track:

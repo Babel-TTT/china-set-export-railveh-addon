@@ -220,6 +220,10 @@ VEHICLE_FIELDS: List[tuple] = [
         "default": "1", "applies": "locomotive",
         "help": "1 时车厢窗口显示系列名。机车默认开，客货车默认关。"}),
     ("wagon_decay", "systems", "toggle", "套用货车衰减参数", {"default": "0"}),
+    ("min_cars", "systems", "int", "最短编组单元数", {
+        "default": "", "min": 0,
+        "help": "动车组最少要挂几个三节单元才能出库（1 个单元 = 1 台车 = 3 段）。"
+                "留空或 0 表示不限制，单组也能单独运行。仅对 mu=1 的车生效。"}),
 
     ("additional_text", "text", "text-long", "车厢描述", {
         "default": "",

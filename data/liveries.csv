@@ -8,3 +8,4 @@
 # See data/README.md for the column reference.
 #
 id,sprite_suffix,string,from_year,to_year,purchase_suffix,templates
+df4c,origin,STR_ORIGINAL,0,9999,,

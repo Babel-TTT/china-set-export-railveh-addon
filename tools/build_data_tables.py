@@ -85,7 +85,7 @@ VEHICLE_COLUMNS = (
     "cargo_disallow_refit", "default_cargo_type", "ai_special_flag", "capacity",
     "capacity_by_cargo", "loading_speed", "cargo_age_period", "train_flags",
     "ac_supply", "airconditioned", "restaurant", "mu", "name_callback",
-    "wagon_decay", "additional_text", "comment",
+    "wagon_decay", "min_cars", "additional_text", "comment",
 )
 
 # Every vehicle is three sections now; the ``model`` column is gone.  These are

@@ -54,6 +54,7 @@ STR_RELDEC_LOW,Reliability decay: low ({STRING}),可靠性衰减：低（{STRING
 STR_RELDEC_HIGH,Reliability decay: high ({STRING}),可靠性衰减：高（{STRING}）
 STR_TOO_SHORT,This train is too short,列车过短
 STR_MUST_BE_4_TO_24_CARS,This train must have 4 to 24 cars,列车必须为4至24节
+STR_MUST_BE_MULTIPLE_OF_3,This train must be a whole number of three car units,列车必须由整数个三节单元组成
 STR_DESC_4,{STRING}{}{STRING}{}{STRING}{}{STRING},
 STR_DESC_EXPORT,{STRING}{}{STRING}{}{STRING},
 STR_CAT_LOCO,Locomotive,机车

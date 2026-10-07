@@ -146,14 +146,18 @@
       control = `<textarea id="${id}" data-field="${esc(field.name)}"
         placeholder="${esc(field.placeholder)}">${esc(value)}</textarea>`;
     } else if (field.kind === 'toggle') {
-      // genpnml.py's _bool() treats 1/y/yes/true/t/on as true and anything
-      // else as false, so offer the readable spellings as well.
-      const truthy = ['0', '1', 'yes', 'true', 'no', 'off'];
-      const options = [`<option value=""${value === '' ? ' selected' : ''}>（留空 / 用默认）</option>`]
-        .concat(truthy.map((choice) =>
-          `<option value="${choice}"${choice === value ? ' selected' : ''}>${choice}</option>`));
-      if (value && !truthy.includes(value)) {
-        options.push(`<option value="${esc(value)}" selected>${esc(value)}</option>`);
+      // genpnml.py reads a flag through _bool(): the value is stripped and
+      // lowercased, then compared against {"1","y","yes","true","t","on"};
+      // everything else -- including "0", "no", "off" and "false" -- is false,
+      // and an empty cell falls back to the generator's default.  The tables
+      // and data/README.md spell these as 1 and 0, so offer exactly that and do
+      // not tempt anybody into a spelling that is false by accident.
+      const choices = [['', '（留空 / 用生成器默认）'], ['1', '1 · 开启'], ['0', '0 · 关闭']];
+      const options = choices.map(([option, text]) =>
+        `<option value="${option}"${option === value ? ' selected' : ''}>${text}</option>`);
+      if (value && !choices.some(([option]) => option === value)) {
+        // a hand written "yes"/"true"/"on" is legal too, so keep it visible
+        options.push(`<option value="${esc(value)}" selected>${esc(value)}（手写值）</option>`);
       }
       return `<div class="field toggle${wide ? ' field-wide' : ''}">
         <label for="${id}">${esc(field.label)}</label>

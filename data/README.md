@@ -36,6 +36,24 @@ rows.  List valued cells use `|` as the separator so that the CSV stays
 readable, for example `bitmask(CC_BULK|CC_COVERED)` and `[PASS|TOUR]`; a comma
 works too but then the cell has to be quoted.
 
+### Yes/no flags
+
+The flag columns (`ac_supply`, `airconditioned`, `restaurant`, `mu`,
+`name_callback`, `wagon_decay`) are read through `_bool()` in `genpnml.py`:
+
+* **`1` means true, `0` means false.**  Write those two, as the column
+  reference below and the web workbench both do.
+* An **empty cell** falls back to the generator's default for that column, which
+  differs per column — `name_callback` is on for locomotives and off for
+  coaches and wagons, `wagon_decay` is on for `wagons.csv` and off elsewhere.
+  Leave it empty when you want the default rather than spelling it out.
+* The reader also accepts `y`, `yes`, `true`, `t` and `on` (upper or lower case,
+  surrounding spaces ignored) as true.  They are legal but unused in this
+  project; prefer `1`.
+* **Anything else is false, without warning.**  `no`, `off` and `false` are
+  *false*, which is what you would expect, but a typo such as `nope` is quietly
+  false as well.  If a flag seems to have no effect, check the spelling first.
+
 ## Files
 
 | file                  | contents                                                     |
@@ -89,6 +107,7 @@ works too but then the cell has to be quoted.
 | `airconditioned` | `1` if the vehicle needs head end power, which is what makes comfort and running cost depend on the locomotive. |
 | `restaurant` | `1` for restaurant cars; modifies the cost and decay of the consist. |
 | `mu` | `1` for multiple unit vehicles, which adds `TRAIN_FLAG_MU` and a start/stop length check. |
+| `min_cars` | shortest train a multiple unit may leave the depot as, counted in three car units (one unit is one vehicle).  Empty or `0` means no minimum, so a single unit may run alone.  Only read when `mu` is set. |
 | `name_callback` | `1` to show the series name in the depot (locomotives). |
 | `train_flags` | extra `TRAIN_FLAG_*` values, `\|` separated. |
 | `additional_text` | the depot description.  Leave empty and the generator builds the standard export text (`STR_DESC_EXPORT`); fill it in to supply the *inner arguments* of a `string(...)` call yourself.  `{FULL_NAME}` expands to `STR_FULL_NAME_<ID>`. |
@@ -192,6 +211,39 @@ instead of producing code nmlc rejects.  Use `pos == 3` or rearrange the rules.
 
 Every basename named here gets a placeholder `.vox` like any other, so the
 project keeps building before the artwork exists.
+
+## Multiple unit train length
+
+A multiple unit car is bought as one three section vehicle.  A train is built by
+coupling those vehicles, so the length of an EMU is always a whole number of
+three car units.  `start_stop` enforces exactly that, and nothing else:
+
+```
+switch (FEAT_TRAINS, SELF, switch_<id>_whole_units,
+        (num_vehs_in_consist % 3) != 0) {
+    1: return string(STR_MUST_BE_MULTIPLE_OF_3);
+    return CB_RESULT_NO_TEXT;
+}
+```
+
+With `min_cars` set, that switch is nested behind a length check:
+
+```
+switch (FEAT_TRAINS, SELF, switch_<id>_start_stop, num_vehs_in_consist < 6) {
+    1: return string(STR_MUST_BE_4_TO_24_CARS);
+    return switch_<id>_whole_units;
+}
+```
+
+`min_cars = 2` is the example above: six sections, so two units.  Consequences:
+
+* `min_cars` empty or `0` means a single unit may be started on its own.
+* There is **no upper limit**.  The parent set capped a multiple unit at 24
+  cars (`mu4to24car`); that cap is deliberately not applied here, because the
+  point of coupling units is that the player decides how long the train is.
+* The old shared `mu4to24car` switch in `src/functions.pnml` is unused by
+  generated vehicles now.  It is kept only so hand written files that reference
+  it still compile.
 
 ## `liveries.csv`
 | column | meaning |
