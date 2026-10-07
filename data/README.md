@@ -2,15 +2,34 @@
 
 Everything about a vehicle — its ID, its switch chains, its spritesets, its
 position in the purchase menu and its language strings — is derived from the
-CSV files in this folder.  `src/usercode.pnml`, `src/vehicleid.pnml` and
-`src/vehiclesort.pnml` are generated and must never be edited by hand.
+CSV files in this folder.  `src/<folder>/<id>.pnml`, `src/vehiclefiles.pnml`,
+`src/vehicleid.pnml` and `src/vehiclesort.pnml` are generated and must never be
+edited by hand.
+
+> **Starting state: empty.**  Every table below currently contains only its
+> documentation header and its column header — no vehicle rows.  The project
+> is a complete, compiling skeleton with no rolling stock in it, ready for real
+> data.  `make gen` writes the empty index files and `make` produces a GRF
+> that defines the parameters, railtypes and cargotypes but no vehicles.
 
 ```
 python3 genpnml.py --data data --out src --vox   # write the PNML and placeholder models
 python3 genpnml.py --strings                     # refresh docs/str.csv
+python3 genpnml.py --check                       # verify the string table
 python3 genpnml.py --clean                       # remove the generated PNML
 make gen                                         # the first of the above, via make
+
+python3 tools/vehicle_row.py add    <table> id=... key=value ...   # add a row
+python3 tools/vehicle_row.py copy   <table> <from> <to> key=value ...
+python3 tools/vehicle_row.py remove <table> <id> [--prune]         # remove a row
+python3 tools/vehicle_row.py columns <table>                       # list the columns
+python3 tools/clear_vehicle_data.py [--apply]                      # empty all tables
 ```
+
+`tools/vehicle_row.py` is the safe way to edit these files: it writes through
+the csv module, so a value containing a comma can never shift the following
+columns.  `tools/clear_vehicle_data.py` empties every table and deletes the
+placeholder models, which is how the current empty state was produced.
 
 `#` starts a comment.  A comment may appear anywhere, including between data
 rows.  List valued cells use `|` as the separator so that the CSV stays

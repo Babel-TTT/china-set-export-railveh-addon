@@ -2,15 +2,63 @@
 
 ## 0.0.1 (unreleased)
 
-Initial skeleton of the export rail vehicles add-on.
+Skeleton of the export rail vehicles add-on, starting from an empty fleet.
 
 --------------------
 
+### State
+
+The vehicle tables are **empty**.  The project is a complete, compiling
+skeleton with no rolling stock in it: the generator, the shared library, the
+build system, the railtype and cargo tables and the documentation are all in
+place and `make` produces a valid GRF that defines the parameters, railtypes
+and cargotypes but no vehicles.  Real data is entered from here.
+
 ### Added
 
-- Project skeleton mirroring China Set: Trains and China Set: Narrow Gauge
-  Add-on: `Makefile`, `Makefile.config`, `str-csv.py`, `docs/str.csv`, per
-  folder `manifest.json` and `ttd_palette.json`, GNU GPL v2 license.
+- `genpnml.py`, a generator that turns the declarative tables in `data/` into
+  NML/PNML code:
+
+  - `src/<folder>/<id>.pnml` — one file per vehicle, holding that vehicle's
+    switches, spritesets and item block;
+  - `src/vehiclefiles.pnml` — the include list of those files, in purchase menu
+    order;
+  - `src/vehicleid.pnml` — vehicle IDs, assigned automatically inside the band
+    of each category;
+  - `src/vehiclesort.pnml` — the purchase menu order;
+  - `docs/str.csv` — every language string the generated code references,
+    preserving existing translations;
+  - placeholder voxel models for every sprite basename, so the project builds
+    before any artwork exists.
+
+- Shared library files `src/header.pnml`, `src/template.pnml`,
+  `src/railtypetable.pnml`, `src/cargotable.pnml` and `src/functions.pnml`,
+  following the conventions of the parent set.  The railtype table covers
+  standard gauge, 1520 mm broad gauge, dual gauge (套轨), metre gauge and
+  narrow gauge, which is what export stock ran on.
+
+- Livery support: `cargo_subtype` refit menu, automatic selection from the
+  build year, and per livery sprite sheets.
+
+- Freight appearance support: switches on cargo class and on the exact cargo,
+  with partial and full load stages.
+
+- `tools/vehicle_row.py` — add, copy and remove table rows with correct CSV
+  quoting, so a value containing a comma can never shift the following
+  columns.
+- `tools/clear_vehicle_data.py` — empty every table and delete the placeholder
+  models (dry run by default, `--apply` to act).
+- `tools/verify_assets.py` — check that every sprite sheet the generated code
+  references exists on disk.
+- `make check` and `genpnml.py --check` — verify that every string the code
+  uses is defined in `docs/str.csv` and that none is dead.
+- `docs/guide-zh.md` — a Chinese step by step operating manual.
+
+### Notes
+
+- `tools/build_data_tables.py` no longer writes the vehicle tables; it only
+  creates the optional auxiliary tables (`liveries.csv`,
+  `cargo_variants.csv`) and reports the state of the vehicle tables.
 
 - `genpnml.py`, a generator that turns the declarative tables in `data/` into
   NML/PNML code:

@@ -39,8 +39,10 @@ def main() -> int:
             refs.update(TEMPLATE_CALL.findall(handle.read()))
 
     if not refs:
-        print("no generated code found -- run `make gen` first")
-        return 1
+        # no vehicles in the tables: nothing to reference, nothing to check
+        print("sprite sheets referenced: 0")
+        print("the tables contain no vehicles yet -- add a row and run `make gen`")
+        return 0
 
     missing = []
     for folder, base in sorted(refs):

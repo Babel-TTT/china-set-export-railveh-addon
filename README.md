@@ -85,6 +85,13 @@ chinasettrainsexport.pnml ──gcc -E──> chinasettrainsexport.nml ──nml
 
 ## 3. Adding a vehicle
 
+> **The tables start empty.**  The project currently defines no vehicles: the
+> generator, the shared library, the build system, the railtype and cargo
+> tables and the documentation are all in place, but every row has been
+> removed so that real data can be entered from scratch.  `make` already
+> produces a valid GRF (parameters, railtypes and cargotypes, no vehicles);
+> add a row and it grows from there.
+
 Vehicles are **data**, not code.  To add one:
 
 1. add a row to `data/locomotives.csv`, `data/coaches.csv`, `data/wagons.csv`
@@ -92,8 +99,16 @@ Vehicles are **data**, not code.  To add one:
    column).  `tools/vehicle_row.py` writes the row with correct CSV quoting:
 
    ```bash
-   python3 tools/vehicle_row.py copy data/locomotives.csv ckd4a ckd8w \
-       name_string="CKD8W (Export)" intro_year=2022
+   python3 tools/vehicle_row.py add data/locomotives.csv \
+       id=ckd4a name_string="CKD4A (Export)" category=diesel folder=diesel \
+       model=single parts=4 power_section=0 intro_year=1993 track_type=BACN \
+       speed=100 power=1000 power_unit=kW weight=92 \
+       tractive_effort_coefficient=0.25 cost_factor=45 running_cost_factor=40 \
+       capacity=1 ac_supply=1
+
+   # or start from a row that already exists
+   python3 tools/vehicle_row.py copy data/locomotives.csv ckd4a ckd4b \
+       name_string="CKD4B (Export)" speed=120
    ```
 
 2. optionally add livery rows to `data/liveries.csv` and appearance rows to
@@ -104,6 +119,9 @@ Vehicles are **data**, not code.  To add one:
    cargo variants, one `.vox` per sprite basename is needed.  `make gen`
    already writes a placeholder model for each of them, so the project builds
    before any artwork exists.
+
+`make gen` creates `gfx/<folder>/manifest.json` and `ttd_palette.json` the
+first time a vehicle needs them, so a new folder needs no manual setup.
 
 **One vehicle, one file.**  Each vehicle gets its own generated file at
 `src/<folder>/<id>.pnml`, listed by `src/vehiclefiles.pnml` and included from

@@ -2036,9 +2036,14 @@ def write_generated(out_dir: str, files: Dict[str, str]) -> Tuple[int, int]:
 def generate(data_dir: str, out_dir: str, index_file: str, with_vox: bool,
              vox_root: str, gfx_root: str) -> int:
     vehicles = load_vehicles(data_dir)
+
     if not vehicles:
-        print("genpnml: no vehicles found in %s" % data_dir, file=sys.stderr)
-        return 1
+        # An empty project is a valid state: the tables are just headers and
+        # the generator writes the index files with nothing in them.  This is
+        # the starting point for a fresh module, and it still compiles.
+        print("genpnml: the tables in %s contain no vehicles" % data_dir)
+        print("genpnml: writing the empty index files and leaving the gfx "
+              "collection untouched")
 
     ids = assign_ids(vehicles)
 
@@ -2065,10 +2070,12 @@ def generate(data_dir: str, out_dir: str, index_file: str, with_vox: bool,
         write_png(fallback32, 2, 2, (0, 0, 0, 0))
 
     # gorender/renderobject reads the manifest and the palette from the folder
-    # the .vox file lives in, so every folder needs its own copy
+    # the .vox file lives in, so every folder needs its own copy.  With no
+    # vehicles there is nothing to prepare, and creating empty folders would
+    # only litter the gfx collection before the first real model exists.
     source_palette = os.path.join(gfx_root, "ttd_palette.json")
     vox_written = 0
-    if with_vox:
+    if with_vox and vehicles:
         folders = sorted({vehicle.folder for vehicle in vehicles})
         for folder in folders:
             directory = os.path.join(vox_root, folder)

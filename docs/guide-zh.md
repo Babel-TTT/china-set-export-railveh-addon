@@ -84,18 +84,29 @@ renderobject --help
 
 ## 2. 五分钟上手
 
+> ### ⚠️ 当前工程是空的
+>
+> 车辆数据表**已经被清空**：`data/` 下 6 个 CSV 只剩表头与说明注释，`gfx/` 里
+> 没有任何 `.vox` 模型。工程骨架、生成器、共享库、构建系统、轨道与货物表、
+> 文档全部保留且可用。
+>
+> 现在 `make` 依然能成功，产出的是一个**不含任何车辆**的 GRF
+> （参数、轨道类型、货物类型都在，只是没有车）。
+> 想看到车，按[第 4 章](#4-加一辆新车完整流程)加第一行数据即可。
+> 空工程正是为了让你从实车数据开始录入。
+
 ```bash
 cd china-set-export-railveh-addon
 
 make -j 8          # 生成代码 + 渲染模型 + 生成语言 + 编译
 ```
 
-首次构建会渲染 110 个模型，需要几分钟；之后是增量的，很快。
+有车之后，首次构建会渲染所有模型，需要几分钟；之后是增量的，很快。
 
 产物：
 
 ```
-chinasettrainsexport.grf        ← 游戏用文件（约 377 KB）
+chinasettrainsexport.grf        ← 游戏用文件（空工程约 13 KB）
 chinasettrainsexport.nml        ← 预处理后的 NML（中间产物，排查错误时看它）
 custom_tags.txt                 ← 版本标记
 lang/english.lng                ← 语言文件（生成物）
@@ -172,6 +183,7 @@ china-set-export-railveh-addon/
 │
 └── tools/
     ├── vehicle_row.py            ★ 安全地增删/复制数据行（自动处理 CSV 引号）
+    ├── clear_vehicle_data.py     ★ 清空全部车辆数据与占位模型
     ├── build_data_tables.py      重新生成 data/*.csv（保证引号正确）
     └── verify_assets.py          校验：PNML 引用的精灵是否都存在
 ```
@@ -619,6 +631,8 @@ python3 tools/vehicle_row.py columns data/locomotives.csv      # 查看列
 python3 tools/vehicle_row.py copy  <表> <源id> <新id> key=value …   # 复制一行并改
 python3 tools/vehicle_row.py add   <表> id=… key=value …            # 新增一行
 python3 tools/vehicle_row.py remove <表> <id> [--prune]             # 删除一行
+python3 tools/clear_vehicle_data.py            # 试运行：清空全部车辆数据
+python3 tools/clear_vehicle_data.py --apply    # 真的清空（含占位模型）
 python3 tools/build_data_tables.py   # 重新生成 data/*.csv（保证 CSV 引号正确）
 python3 tools/verify_assets.py       # 校验 PNML 引用的精灵是否都存在
 python3 str-csv.py docs/str.csv      # docs/str.csv → lang/*.lng
