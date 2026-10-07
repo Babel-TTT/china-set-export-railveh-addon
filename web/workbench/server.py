@@ -6,7 +6,7 @@ The browser owns the editing experience; this server keeps the repository
 consistent.  It deliberately uses only the Python standard library and delegates
 every piece of real work to the project's existing command line tools:
 
-    genpnml.py                     vehicle code and placeholder models
+    genpnml.py                     vehicle code and gfx folder preparation
     tools/vehicle_row.py           safe CSV row handling (same writer here)
     tools/verify_assets.py         sprite basename versus rendered file
     tools/clear_vehicle_data.py    empty the tables
@@ -26,6 +26,7 @@ and open http://127.0.0.1:4174/workbench/
 from __future__ import annotations
 
 import csv
+import importlib
 import io
 import json
 import mimetypes
@@ -46,6 +47,12 @@ from urllib.parse import parse_qs, unquote, urlparse
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
 sys.path.insert(0, str(HERE))
+# The repository root has to be importable too: parse_graphics_cell() parses a
+# rule cell with genpnml.py itself, and running this file as a script puts
+# web/workbench on sys.path rather than the root.  Without this the import
+# failed, every rule preview came back as "no rules", and a malformed cell was
+# never reported -- a silent empty answer is exactly what hid it.
+sys.path.insert(0, str(ROOT))
 
 import schema as schema_module  # noqa: E402
 
@@ -58,11 +65,32 @@ LANG_CSV = DOCS / "str.csv"
 
 VEHICLE_TABLES = ("locomotives.csv", "coaches.csv", "wagons.csv", "unit_wagons.csv")
 AUX_TABLES = ("liveries.csv", "cargo_variants.csv")
+
+# the generator module and the mtime it was loaded at; see generator_module()
+_GENPNML = None
+_GENPNML_STAMP = None
 ALL_TABLES = VEHICLE_TABLES + AUX_TABLES
 
 ID_RE = re.compile(r"^[a-z0-9_]+$")
-FOLDER_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.-]*$")
+# the folder column may be a multi level path ("diesel/df4c"), so a segment is
+# checked rather than the whole cell; the depth matches what the Makefile
+# collects with $(wildcard)
+FOLDER_SEGMENT_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.-]*$")
+MAX_FOLDER_DEPTH = 4
 BACKUP_SUFFIX = ".workbench.bak"
+# a livery label is written LV_<NAME> and becomes STR_LV_<NAME> in the code;
+# a raw STR_ constant is still accepted so older tables keep working
+LIVERY_LABEL_RE = re.compile(r"^(?:LV_[A-Za-z0-9_]+|STR_[A-Za-z0-9_]+)$")
+# the six labels the generator shipped before the LV_ convention, which map onto
+# their STR_LV_ names instead of being reported as undefined
+LEGACY_LIVERY_LABELS = {
+    "STR_BUILD_YEAR": "STR_LV_BUILD_YEAR",
+    "STR_ORIGINAL": "STR_LV_ORIGINAL",
+    "STR_EXPORT_BLUE": "STR_LV_EXPORT_BLUE",
+    "STR_EXPORT_GREEN": "STR_LV_EXPORT_GREEN",
+    "STR_EXPORT_GRAY": "STR_LV_EXPORT_GRAY",
+    "STR_DPRK_LIVERY": "STR_LV_DPRK",
+}
 
 VEHICLE_ID_ITEM_RE = re.compile(
     r'item\s*\(\s*FEAT_TRAINS\s*,\s*([A-Za-z0-9_]+)\s*,\s*(\d+)\s*\)'
@@ -73,7 +101,7 @@ COMMANDS = {
     "gen": {
         "label": "生成车辆代码",
         "steps": [[sys.executable, "genpnml.py", "--strings", "--strings-file", "docs/str.csv"],
-                  [sys.executable, "genpnml.py", "--data", "data", "--out", "src", "--vox",
+                  [sys.executable, "genpnml.py", "--data", "data", "--out", "src",
                    "--sprite-manifest", "gfx/.workbench-sprites.json"]],
     },
     "build": {
@@ -84,12 +112,8 @@ COMMANDS = {
         "label": "一致性检查",
         "steps": [[sys.executable, "genpnml.py", "--data", "data", "--check",
                    "--strings-file", "docs/str.csv"],
-                  [sys.executable, "tools/verify_assets.py"]],
-    },
-    "vox": {
-        "label": "生成占位模型",
-        "steps": [[sys.executable, "genpnml.py", "--data", "data", "--out", "src", "--vox",
-                   "--sprite-manifest", "gfx/.workbench-sprites.json"]],
+                  [sys.executable, "tools/verify_assets.py"],
+                  [sys.executable, "tools/check_gfx_config.py"]],
     },
     "render": {
         "label": "渲染精灵图",
@@ -163,11 +187,42 @@ def read_table(table: str):
         if not raw or not raw[0].strip():
             continue
         rows.append(dict(zip(header, raw + [""] * (len(header) - len(raw)))))
+    remember_table(table, path)
     return comments, header, rows
 
 
-def write_table(table: str, comments, header, rows) -> None:
+# Every table write is a read-modify-write of the whole file, so a write based
+# on a stale read silently destroys whatever changed in between -- a row edited
+# in a text editor, restored by git, or written by a script.  The modification
+# time the rows were read at is therefore recorded, and a write whose file has
+# moved on since is refused rather than allowed to lose data.
+TABLE_STAMPS: dict = {}
+
+
+def table_stamp(path: Path):
+    try:
+        info = path.stat()
+    except OSError:
+        return None
+    return (info.st_mtime_ns, info.st_size)
+
+
+def remember_table(table: str, path: Path) -> None:
+    TABLE_STAMPS[table] = table_stamp(path)
+
+
+class TableChangedError(RuntimeError):
+    """The file changed after the rows were read."""
+
+
+def write_table(table: str, comments, header, rows, force: bool = False) -> None:
     path = table_path(table)
+    if not force and table in TABLE_STAMPS:
+        current = table_stamp(path)
+        if current is not None and current != TABLE_STAMPS[table]:
+            raise TableChangedError(
+                "%s 在读取之后被改动过，为避免覆盖别人的修改，本次写入已取消。"
+                "请点「重新读取」后再改一次。" % table)
     if path.is_file():
         shutil.copyfile(path, path.with_name(path.name + BACKUP_SUFFIX))
     temporary = path.with_name(path.name + ".workbench.tmp")
@@ -181,10 +236,118 @@ def write_table(table: str, comments, header, rows) -> None:
         writer.writerow({key: row.get(key, "") for key in header})
     temporary.write_text(buffer.getvalue(), encoding="utf-8", newline="")
     os.replace(temporary, path)
+    remember_table(table, path)
 
 
 def blank_row(header) -> dict:
     return {key: "" for key in header}
+
+
+# ==========================================================================
+# docs/str.csv -- the language table, edited through the workbench
+# ==========================================================================
+STR_CONSTANT_RE = re.compile(r"^STR_[A-Z0-9_]+$")
+LANG_HEADER = ["STRING", "ENGLISH", "SIMPLIFIED CHINESE"]
+
+
+def is_lang_header(cells) -> bool:
+    """Is this CSV record the language table's header line?
+
+    It must be recognised in one place: a header that one reader skips and
+    another keeps becomes a phantom row the browser renders as a string, which
+    then cannot be saved or deleted ("字符串表里没有 STRING").
+    """
+    if not cells or len(cells) < 2:
+        return False
+    return cells[0].strip().lstrip("\ufeff") == LANG_HEADER[0] \
+        and cells[1].strip() == LANG_HEADER[1]
+
+
+def read_lang_table():
+    """Return (comments, rows) of docs/str.csv as 3 cell lists.
+
+    This file has no room for the ``#`` handling ``read_table`` does, because
+    its comments are single lines rather than a leading block, so it is read
+    and written here instead of through the generic CSV helpers.
+    """
+    if not LANG_CSV.is_file():
+        raise FileNotFoundError("docs/str.csv does not exist")
+    comments, rows = [], []
+    with LANG_CSV.open(encoding="utf-8-sig", newline="") as handle:
+        for raw in csv.reader(handle):
+            if not raw:
+                continue
+            first = raw[0].strip().lstrip("\ufeff")
+            if not first:
+                continue
+            if first.startswith("#"):
+                comments.append(",".join(raw))
+                continue
+            if is_lang_header(raw):
+                continue          # the header is written back by write_lang_table
+            cells = [cell.strip() for cell in raw] + ["", "", ""]
+            rows.append([first, cells[1], cells[2]])
+    return comments, rows
+
+
+def write_lang_table(comments, rows) -> None:
+    if LANG_CSV.is_file():
+        shutil.copyfile(LANG_CSV, LANG_CSV.with_name(LANG_CSV.name + BACKUP_SUFFIX))
+    temporary = LANG_CSV.with_name(LANG_CSV.name + ".workbench.tmp")
+    buffer = io.StringIO()
+    for line in comments:
+        buffer.write(line + "\n")
+    writer = csv.writer(buffer, lineterminator="\n")
+    writer.writerow(LANG_HEADER)
+    for row in rows:
+        writer.writerow(row)
+    temporary.write_text(buffer.getvalue(), encoding="utf-8", newline="")
+    os.replace(temporary, LANG_CSV)
+
+
+def find_lang_row(rows, constant: str):
+    wanted = (constant or "").strip()
+    for index, row in enumerate(rows):
+        if row[0] == wanted:
+            return index
+    return None
+
+
+def save_lang_row(payload: dict) -> dict:
+    """Add or update one string, keyed by its constant."""
+    constant = str(payload.get("constant") or "").strip().upper()
+    english = str(payload.get("english") or "").strip()
+    chinese = str(payload.get("chinese") or "").strip()
+    original = str(payload.get("original") or "").strip().upper()
+    if not STR_CONSTANT_RE.match(constant):
+        raise ValueError("常量只能是大写字母、数字和下划线，并以 STR_ 开头：%r" % constant)
+    if not english and not chinese:
+        raise ValueError("英文与中文至少要填一个，否则这个字符串是空的")
+
+    comments, rows = read_lang_table()
+    index = find_lang_row(rows, original or constant)
+    if original and original != constant and find_lang_row(rows, constant) is not None:
+        raise ValueError("%s 已经存在" % constant)
+    if original and index is None:
+        raise FileNotFoundError("字符串表里没有 %s" % original)
+    if index is None:
+        rows.append([constant, english, chinese])
+    else:
+        rows[index] = [constant, english, chinese]
+    write_lang_table(comments, rows)
+    return {"ok": True, "constant": constant, "created": index is None,
+            "state": build_state()}
+
+
+def delete_lang_row(payload: dict) -> dict:
+    constant = str(payload.get("constant") or "").strip()
+    comments, rows = read_lang_table()
+    index = find_lang_row(rows, constant)
+    if index is None:
+        raise FileNotFoundError("字符串表里没有 %s" % constant)
+    rows.pop(index)
+    write_lang_table(comments, rows)
+    return {"ok": True, "constant": constant, "state": build_state()}
 
 
 # ==========================================================================
@@ -218,6 +381,41 @@ def is_locomotive_table(table: str) -> bool:
     return table == "locomotives.csv"
 
 
+def normalize_folder(value: str) -> str:
+    """Normalise a ``folder`` cell and refuse anything that escapes ``gfx/``.
+
+    The cell may be a multi level path such as ``diesel/df4c`` or
+    ``export/dprk/df4c``; forward slashes are the separator because the value is
+    also the first argument of the NML sprite templates, and NML paths always
+    use forward slashes.  Backslashes are folded to slashes so a cell typed on
+    Windows still works, and ``.`` / ``..`` segments are resolved and then
+    rejected rather than silently kept.
+    """
+    text = (value or "").strip().replace("\\", "/")
+    while "//" in text:
+        text = text.replace("//", "/")
+    return text
+
+
+def folder_error(value: str) -> str:
+    """Return why a folder cell is unusable, or an empty string."""
+    text = normalize_folder(value)
+    if not text:
+        return "folder 不能为空（它是 gfx/ 子目录，也是精灵图模板的第一个参数）"
+    if text.startswith("/") or re.match(r"^[A-Za-z]:", text):
+        return "folder 必须是 gfx/ 下的相对路径，不能是绝对路径：%r" % value
+    segments = text.split("/")
+    if any(segment in ("", ".", "..") for segment in segments):
+        return "folder 不能包含空段、. 或 ..：%r" % value
+    if len(segments) > MAX_FOLDER_DEPTH:
+        return "folder 最多 %d 层目录，当前 %d 层：%r" % (MAX_FOLDER_DEPTH,
+                                                        len(segments), value)
+    for segment in segments:
+        if not FOLDER_SEGMENT_RE.match(segment):
+            return "folder 的每一层只能是字母、数字、下划线、点和横线，且不能以点或横线开头：%r" % segment
+    return ""
+
+
 def validate_vehicle_row(table: str, row: dict, others, is_new: bool):
     """Return a list of error strings; empty means the row may be written."""
     errors = []
@@ -231,11 +429,9 @@ def validate_vehicle_row(table: str, row: dict, others, is_new: bool):
     if category and not band_of(category):
         errors.append("未知的 category：%r" % category)
 
-    folder = (row.get("folder") or "").strip()
-    if not folder:
-        errors.append("folder 不能为空（它是 gfx/ 子目录，也是精灵图模板的第一个参数）")
-    elif not FOLDER_RE.match(folder) or "/" in folder or "\\" in folder or ".." in folder:
-        errors.append("folder 只能是一层目录名，且不能包含路径分隔符：%r" % folder)
+    problem = folder_error(row.get("folder"))
+    if problem:
+        errors.append(problem)
 
     if not (row.get("name_string") or "").strip():
         errors.append("name_string 不能为空")
@@ -293,19 +489,6 @@ def validate_vehicle_row(table: str, row: dict, others, is_new: bool):
         if known and track not in known:
             errors.append("track_type %r 不在 src/railtypetable.pnml 中" % track)
 
-    # graphics_parts is compiled into NML switches, so a broken cell would only
-    # surface as an nmlc syntax error much later; parse it the same way the
-    # generator does and report the reason now.
-    graphics_parts = (row.get("graphics_parts") or "").strip()
-    if graphics_parts:
-        try:
-            import genpnml
-            genpnml.parse_graphics_parts(graphics_parts, len(parts) or 3)
-        except ImportError:
-            pass
-        except ValueError as error:
-            errors.append("graphics_parts：%s" % error)
-
     if is_new:
         for other in others:
             if (other.get("id") or "").strip() == vehicle_id:
@@ -327,16 +510,151 @@ def validate_vehicle_row(table: str, row: dict, others, is_new: bool):
     return errors
 
 
-def validate_livery_row(row: dict, vehicle_ids, is_new: bool, rows):
+def livery_basename(vehicle_id: str, suffix: str) -> str:
+    """The sprite basename a livery row resolves to: ``<id>`` or ``<id>-<suffix>``.
+
+    This mirrors ``genpnml._livery_basename``; the workbench shows it next to
+    the row because the suffix alone does not say which ``.vox`` a livery needs.
+    """
+    vehicle_id = (vehicle_id or "").strip()
+    suffix = (suffix or "").strip()
+    return "%s-%s" % (vehicle_id, suffix) if suffix else vehicle_id
+
+
+def livery_constant(label: str) -> str:
+    """The NML constant a livery label cell refers to (mirrors genpnml).
+
+    ``LV_<NAME>`` becomes ``STR_LV_<NAME>``, and the six labels the generator
+    used to ship as plain ``STR_`` constants are mapped onto their new names so
+    a table written before the convention still resolves to real text.
+    """
+    text = (label or "").strip()
+    if text.startswith("LV_"):
+        return "STR_" + text
+    return LEGACY_LIVERY_LABELS.get(text, text)
+
+
+def generator_module():
+    """The generator module, reloaded when genpnml.py changed on disk.
+
+    The workbench validates a cell with the generator's own parser, so it has to
+    be the parser that is currently on disk.  A plain ``import`` caches the
+    module for the life of the process, which means editing genpnml.py while the
+    server runs would leave the editor validating against code that no longer
+    exists -- and an out-of-date parser answers "no rules" rather than failing.
+
+    Returns ``(module, "")`` or ``(None, reason)``.
+    """
+    global _GENPNML, _GENPNML_STAMP
+    source = ROOT / "genpnml.py"
+    try:
+        stamp = source.stat().st_mtime_ns
+    except OSError as error:
+        return None, "找不到 genpnml.py（%s），规则无法解析" % error
+    if _GENPNML is not None and _GENPNML_STAMP == stamp:
+        return _GENPNML, ""
+    try:
+        import genpnml
+        if _GENPNML is not None:
+            genpnml = importlib.reload(genpnml)
+    except Exception as error:  # noqa: BLE001 -- reported to the editor
+        return None, "无法导入 genpnml.py（%s: %s），规则无法解析" % (
+            type(error).__name__, error)
+    _GENPNML = genpnml
+    _GENPNML_STAMP = stamp
+    return genpnml, ""
+
+
+def parse_graphics_cell(cell: str, part_count: int) -> dict:
+    """Parse one ``graphics_parts`` cell into a displayable report.
+
+    The cell decides which sprite each section shows depending on where the car
+    sits in the whole train, which is the least obvious column in the tables.
+    The editor shows the same parse the generator will compile, so a rule nmlc
+    would reject is reported as text rather than as a build failure.
+
+    A section is a *tree* of switches, not a list, so the report keeps the
+    nesting: the editor draws it as an indented tree, which is the shape the
+    generated NML has.
+    """
+    cell = (cell or "").strip()
+    if not cell:
+        return {"set": False, "text": "", "sections": [], "error": ""}
+    genpnml, failure = generator_module()
+    if genpnml is None:
+        # the parser lives in the generator, so without it nothing here can be
+        # checked; say so instead of reporting an empty, valid-looking cell
+        return {"set": True, "text": cell, "sections": [], "error": failure}
+    try:
+        parsed = genpnml.parse_graphics_parts(cell, part_count)
+    except ValueError as error:
+        # GraphicsPartsError subclasses ValueError, and so does a mismatch in
+        # the section count, so one clause covers every refusal the parser makes
+        return {"set": True, "text": cell, "sections": [], "error": str(error)}
+    except Exception as error:  # noqa: BLE001 -- surface it in the editor
+        # An unexpected failure must still reach the editor: a request that
+        # silently answered "no rules" is what hid a stale parser once already.
+        return {"set": True, "text": cell, "sections": [],
+                "error": "%s: %s" % (type(error).__name__, error)}
+    sections = []
+    for position, roots in enumerate(parsed):
+        sections.append({
+            "position": position,
+            "roots": [genpnml.tree_to_json(node) for node in roots],
+            "basenames": [name for name in _graphics_basenames(roots)],
+        })
+    return {"set": True, "text": cell, "sections": sections, "error": ""}
+
+
+def render_graphics_cell(sections, part_count: int) -> dict:
+    """Turn the editor's switch tree back into a cell, then parse it again.
+
+    The editor never writes a cell itself: it posts the tree, this renders it and
+    returns the parse of what was rendered, so the author is shown exactly what
+    the table will hold.  A tree the cell language cannot express comes back as
+    an error instead of as a cell that would mean something else.
+    """
+    genpnml, failure = generator_module()
+    if genpnml is None:
+        return {"error": failure}
+    try:
+        cell = genpnml.render_graphics_json(sections, part_count)
+    except ValueError as error:
+        return {"error": str(error)}
+    report = parse_graphics_cell(cell, part_count)
+    if report.get("error"):
+        return {"error": report["error"]}
+    report["cell"] = cell
+    return report
+
+
+def _graphics_basenames(roots) -> list:
+    """Every sprite sheet a section's tree names, in order, without repeats."""
+    seen = []
+    for root in roots:
+        for node in root.walk():
+            if node.basename and node.basename not in seen:
+                seen.append(node.basename)
+    return seen
+
+
+def validate_livery_row(row: dict, vehicle_ids, is_new: bool, rows, index=None,
+                        part_counts=None) -> dict:
+    """Return {"errors": [...], "warnings": [...]} for one livery row.
+
+    An error blocks the write; a warning is shown but saved, because the two
+    things it reports are legal NML that is merely probably not what was meant.
+    """
     errors = []
+    warnings = []
     vehicle_id = (row.get("id") or "").strip()
     if not ID_RE.match(vehicle_id):
         errors.append("id 只能用小写字母、数字和下划线：%r" % vehicle_id)
     elif vehicle_id not in vehicle_ids:
         errors.append("id=%s 不在任何车辆表中" % vehicle_id)
     string = (row.get("string") or "").strip()
-    if string and not string.startswith("STR_"):
-        errors.append("string 应形如 STR_EXPORT_BLUE：%r" % string)
+    if string and not LIVERY_LABEL_RE.match(string):
+        errors.append("涂装名称应形如 LV_EXPORT_BLUE（或旧的 STR_EXPORT_BLUE）：%r" % string)
     for column in ("from_year", "to_year"):
         value = (row.get(column) or "").strip()
         if value and not value.isdigit():
@@ -345,7 +663,75 @@ def validate_livery_row(row: dict, vehicle_ids, is_new: bool, rows):
     to_year = (row.get("to_year") or "9999").strip() or "9999"
     if from_year.isdigit() and to_year.isdigit() and int(to_year) < int(from_year):
         errors.append("to_year (%s) 小于 from_year (%s)" % (to_year, from_year))
-    return errors
+
+    # the section count of this scheme's rules is the vehicle's section count.
+    # Parsing the cell already validates every condition, so a report with no
+    # error needs nothing more: the tree it returns is what the generator emits.
+    cell = (row.get("graphics_parts") or "").strip()
+    if cell:
+        count = (part_counts or {}).get(vehicle_id)
+        if count is None:
+            warnings.append("找不到 %s 的 parts 列，分节图像规则暂时无法校验" % vehicle_id)
+        else:
+            report = parse_graphics_cell(cell, count)
+            if report["error"]:
+                errors.append("分节图像规则：%s" % report["error"])
+
+    basename = livery_basename(vehicle_id, row.get("sprite_suffix"))
+
+    def siblings():
+        for position, other in enumerate(rows):
+            if index is not None and position == index:
+                continue
+            if (other.get("id") or "").strip() != vehicle_id:
+                continue
+            yield position, other
+
+    # two rows of one vehicle that resolve to the same basename would make the
+    # generator declare the same sprite sheet twice
+    for position, other in siblings():
+        if livery_basename(vehicle_id, other.get("sprite_suffix")) == basename:
+            errors.append("同一台车的第 %d 行已经是同一个模型 %s；"
+                          "要新增涂装请换一个精灵图后缀（每行一个 .vox）"
+                          % (position + 1, basename))
+            break
+
+    # A livery is identified in the refit menu by its string, so two schemes of
+    # one vehicle sharing a label are listed as two identical entries and the
+    # player cannot tell them apart.  Reusing a label is deliberate sometimes
+    # (one scheme delivered with several models), so this only warns -- but it
+    # has to warn, or the only thing distinguishing the rows is a file name.
+    constant = livery_constant(row.get("string"))
+    if constant:
+        sharing = [position for position, other in siblings()
+                   if livery_constant(other.get("string")) == constant]
+        if sharing:
+            warnings.append(
+                "同一台车还有 %d 行（第 %s 行）用的是同一个字符串 %s；"
+                "改装菜单里它们会显示成同一条，玩家分不出来。"
+                "要让菜单能区分，请给这一行单独的 LV_<名字>"
+                % (len(sharing), "、".join(str(position + 1) for position in sharing),
+                   constant))
+
+    if not (from_year.isdigit() and to_year.isdigit()):
+        return {"errors": errors, "warnings": warnings}
+
+    # Overlapping ranges are compiled (the generator sorts them and nmlc picks
+    # the first case that matches), so this is a warning: the player sees the
+    # earlier row inside the overlap, which is rarely the intent.
+    bounds = (int(from_year), int(to_year))
+    for position, other in siblings():
+        other_from = (other.get("from_year") or "0").strip() or "0"
+        other_to = (other.get("to_year") or "9999").strip() or "9999"
+        if not (other_from.isdigit() and other_to.isdigit()):
+            continue
+        low, high = int(other_from), int(other_to)
+        if low <= bounds[1] and bounds[0] <= high:
+            warnings.append("年份区间 %s-%s 与第 %d 行的 %s-%s 重叠；"
+                            "编译后重叠部分会取行序靠前的那一行"
+                            % (from_year, to_year, position + 1, low, high))
+            break
+    return {"errors": errors, "warnings": warnings}
 
 
 def validate_variant_row(row: dict, rows, wagon_ids, others):
@@ -436,7 +822,7 @@ def read_vehicleid_file() -> dict:
 
 
 def sprite_manifest_path() -> Path:
-    """Where the last ``genpnml.py --vox`` run recorded the sprite basenames."""
+    """Where the last ``genpnml.py`` run recorded the sprite basenames."""
     return ROOT / "gfx" / ".workbench-sprites.json"
 
 
@@ -445,13 +831,13 @@ def collect_sprite_basenames() -> dict:
 
     ``collect_sprite_basenames()`` in ``genpnml.py`` is the only authority on
     which ``gfx/<folder>/<basename>.vox`` files a set of rows needs, so the
-    workbench asks it instead of reimplementing the suffix rules.  Running the
-    generator without ``--vox`` writes no files, so this is read-only.
+    workbench asks it instead of reimplementing the suffix rules.  Reading the
+    tables writes nothing, so this is read-only.
     """
     script = (
         "import json, genpnml\n"
         "vehicles = genpnml.load_vehicles()\n"
-        "out = {v.id: [b for b, _c in genpnml.collect_sprite_basenames(v)] for v in vehicles}\n"
+        "out = {v.id: genpnml.collect_sprite_basenames(v) for v in vehicles}\n"
         "print('__SPRITES__' + json.dumps(out))\n"
     )
     try:
@@ -491,12 +877,12 @@ def sprite_basenames() -> dict:
             continue
         for row in rows:
             vehicle_id = (row.get("id") or "").strip()
-            folder = (row.get("folder") or "").strip()
+            folder = normalize_folder(row.get("folder"))
             if not vehicle_id or not folder:
                 continue
             records = []
             for basename in by_id.get(vehicle_id, []):
-                directory = GFX / folder
+                directory = GFX.joinpath(*folder.split("/"))
                 records.append({
                     "folder": folder,
                     "basename": basename,
@@ -509,25 +895,84 @@ def sprite_basenames() -> dict:
     return vehicles
 
 
+def string_kind(constant: str) -> str:
+    """Which family a string constant belongs to.
+
+    The language table mixes three kinds of text, and a livery label is the one
+    a maker edits most often, so they are classified rather than flat listed.
+    """
+    name = (constant or "").strip()
+    if name.startswith("STR_LV_"):
+        return "livery"
+    if name.startswith(("STR_NAME_", "STR_FULL_NAME_")):
+        return "vehicle"
+    return "interface"
+
+
 def string_table_rows() -> list:
-    """Every row of docs/str.csv as {constant, english, chinese}.
+    """Every row of docs/str.csv as {constant, english, chinese, kind}.
 
     The livery and cargo tables refer to a string by its constant, which says
     nothing about the text the player will read.  Publishing the table lets the
-    workbench show the resolved text next to the field.
+    workbench show the resolved text next to the field and filter by family.
+
+    The header line and anything that is not a real ``STR_`` constant are left
+    out: a row the editor can display but not save is worse than no row.
     """
     rows = []
     if not LANG_CSV.is_file():
         return rows
     with LANG_CSV.open(encoding="utf-8-sig", newline="") as handle:
-        for row in csv.reader(handle):
-            if not row or not row[0].strip() or row[0].lstrip().startswith("#"):
+        for cells in csv.reader(handle):
+            if not cells or not cells[0].strip():
                 continue
-            cells = list(row) + ["", ""]
-            rows.append({"constant": cells[0].strip(),
-                         "english": cells[1].strip(),
-                         "chinese": cells[2].strip()})
+            if is_lang_header(cells):
+                continue
+            constant = cells[0].strip().lstrip("\ufeff")
+            if constant.startswith("#") or not STR_CONSTANT_RE.match(constant):
+                continue
+            padded = list(cells) + ["", ""]
+            rows.append({"constant": constant,
+                         "english": padded[1].strip(),
+                         "chinese": padded[2].strip(),
+                         "kind": string_kind(constant)})
+    usage = livery_label_usage()
+    for row in rows:
+        counts = usage.get(row["constant"], [])
+        row["livery_uses"] = sum(counts)
+        row["livery_vehicles"] = len(counts)
+        # more than one scheme of a single vehicle under one label
+        row["livery_duplicate"] = bool(counts) and counts[0] > 1
     return rows
+
+
+def livery_label_usage() -> dict:
+    """{constant: [how many schemes of each vehicle point at it]}.
+
+    A livery label is the only thing that names a scheme in the refit menu, and
+    that menu is per vehicle: two schemes of *one* vehicle sharing a label are
+    listed as two identical entries, while two vehicles using the same label is
+    perfectly normal.  The per vehicle counts are what the string table needs to
+    tell the two cases apart.
+    """
+    per_constant: dict = {}
+    for row in read_aux("liveries.csv"):
+        constant = livery_constant(row.get("string"))
+        vehicle_id = (row.get("id") or "").strip()
+        if not constant or not vehicle_id:
+            continue
+        counted = per_constant.setdefault(constant, {})
+        counted[vehicle_id] = counted.get(vehicle_id, 0) + 1
+    return {constant: sorted(counts.values(), reverse=True)
+            for constant, counts in per_constant.items()}
+
+
+def lang_comments() -> list:
+    """The comment lines of docs/str.csv, for round tripping the file."""
+    try:
+        return read_lang_table()[0]
+    except (OSError, ValueError):
+        return []
 
 
 def language_strings() -> set:
@@ -595,6 +1040,61 @@ def build_state() -> dict:
         except (OSError, ValueError):
             aux[table] = []
 
+    # a livery row is only useful if the .vox it names exists, so publish the
+    # resolved basename and the state of both files next to every row
+    folders, parts_by_id = {}, {}
+    for table in VEHICLE_TABLES:
+        for row in tables[table][2]:
+            vehicle_id = (row.get("id") or "").strip()
+            if vehicle_id:
+                folders[vehicle_id] = normalize_folder(row.get("folder"))
+                pieces = [piece.strip() for piece in re.split(r"[|,;]", row.get("parts") or "")
+                          if piece.strip()]
+                parts_by_id[vehicle_id] = len(pieces) or 3
+
+    def sprite_file(folder: str, name: str) -> bool:
+        if not folder or not name:
+            return False
+        return GFX.joinpath(*folder.split("/"), name).is_file()
+
+    labels_by_vehicle: dict = {}
+    for row in aux["liveries.csv"]:
+        vehicle_id = (row.get("id") or "").strip()
+        constant = livery_constant(row.get("string"))
+        if vehicle_id and constant:
+            labels_by_vehicle.setdefault(vehicle_id, []).append(constant)
+
+    for position, row in enumerate(aux["liveries.csv"]):
+        vehicle_id = (row.get("id") or "").strip()
+        basename = livery_basename(vehicle_id, row.get("sprite_suffix"))
+        folder = folders.get(vehicle_id, "")
+        row["_index"] = position
+        row["_basename"] = basename
+        row["_folder"] = folder
+        row["_label"] = (row.get("string") or "").strip()
+        row["_constant"] = livery_constant(row.get("string"))
+        row["_sections"] = parts_by_id.get(vehicle_id, 3)
+        row["_graphics"] = parse_graphics_cell(row.get("graphics_parts"),
+                                              row["_sections"])
+        row["_vox"] = sprite_file(folder, basename + ".vox")
+        row["_png"] = sprite_file(folder, basename + "_32bpp.png")
+        # a livery is identified in the refit menu by its string, so the editor
+        # has to say when several schemes of one vehicle would be listed under
+        # the same label and the player could not tell them apart
+        row["_label_used"] = (labels_by_vehicle.get(vehicle_id, [])
+                              .count(row["_constant"]) if row["_constant"] else 0)
+    for position, row in enumerate(aux["cargo_variants.csv"]):
+        vehicle_id = (row.get("id") or "").strip()
+        suffix = (row.get("sprite_suffix") or "").strip()
+        folder = folders.get(vehicle_id, "")
+        row["_index"] = position
+        row["_basename"] = suffix
+        row["_folder"] = folder
+        # an empty suffix means "unloaded, draw the livery sprite itself"
+        row["_own_sprite"] = bool(suffix)
+        row["_vox"] = sprite_file(folder, suffix + ".vox") if suffix else False
+        row["_png"] = sprite_file(folder, suffix + "_32bpp.png") if suffix else False
+
     ids = read_vehicleid_file()
     computed = regenerate_ids(tables)
     for vehicle in vehicles:
@@ -607,6 +1107,10 @@ def build_state() -> dict:
         vehicle["sprites"] = records
         vehicle["sprites_ready"] = bool(records) and all(r["png"] for r in records)
         vehicle["sprites_missing"] = [r["basename"] for r in records if not r["png"]]
+        vehicle["livery_count"] = sum(
+            1 for row in aux["liveries.csv"]
+            if (row.get("id") or "").strip() == vehicle["id"])
+        vehicle["sections"] = parts_by_id.get(vehicle["id"], 3)
 
     counts = {table: len(tables[table][2]) for table in VEHICLE_TABLES}
     return {
@@ -622,6 +1126,7 @@ def build_state() -> dict:
             if (ROOT / "chinasettrainsexport.grf").is_file() else 0,
         },
         "strings": len(language_strings()),
+        "string_rows": string_table_rows(),
     }
 
 
@@ -733,10 +1238,10 @@ def job_list() -> list:
 def row_key(table: str, row: dict):
     """The cell tuple that identifies a row inside its table.
 
-    A vehicle is identified by ``id``; a cargo variant by ``id`` plus
-    ``variant``; a livery scheme by ``id``, its sprite suffix and its year
-    range, because the row order of one vehicle defines the livery index and
-    several schemes of the same vehicle may share an empty sprite suffix.
+    A vehicle is identified by ``id`` and a cargo variant by ``id`` plus
+    ``variant``.  A livery has no such key -- its sprite suffix and year range
+    are all editable -- so it is identified by its position, and this key only
+    serves as a fallback when no position is known.
     """
     if table in VEHICLE_TABLES:
         return ((row.get("id") or "").strip(),)
@@ -765,13 +1270,64 @@ def find_row(table: str, rows, original: dict):
     return None
 
 
+def find_aux_row(table: str, rows, original: dict, index=None):
+    """Locate one auxiliary row.
+
+    A livery row is identified by four volatile cells (id, sprite suffix and
+    both years), so editing any of them used to make the row impossible to find
+    again -- "liveries.csv 中找不到该行" when deleting a row that is plainly
+    there.  The row's position is therefore the primary identity, exactly like
+    a vehicle row: the browser sends the index of the row it rendered and, when
+    no index is available, the key cells are matched on their own.
+    """
+    if isinstance(index, int) and 0 <= index < len(rows):
+        return index
+    return find_row(table, rows, original)
+
+
+def vehicle_section_counts() -> dict:
+    """{vehicle id: section count}, so livery rules can be validated."""
+    counts = {}
+    for table in VEHICLE_TABLES:
+        try:
+            rows = read_table(table)[2]
+        except (OSError, ValueError):
+            continue
+        for row in rows:
+            vehicle_id = (row.get("id") or "").strip()
+            if not vehicle_id:
+                continue
+            pieces = [piece for piece in re.split(r"[|,;]", row.get("parts") or "")
+                      if piece.strip()]
+            counts[vehicle_id] = len(pieces) or 3
+    return counts
+
+
+def browser_row(payload: dict, key: str) -> dict:
+    """One row as the browser sent it, without the fields this server added.
+
+    ``build_state`` decorates every row with presentation-only keys -- ``_index``,
+    ``_basename``, ``_graphics``, ``_label_used`` and friends -- so the browser
+    holds them in the very object it posts back.  They are not columns, so they
+    must never reach the "unknown column" check: a leading underscore is this
+    project's own marker for "computed for display", which is why the filter is
+    on the underscore rather than on a list that has to be kept in step with
+    ``build_state``.
+    """
+    return {name: value for name, value in dict(payload.get(key) or {}).items()
+            if not str(name).startswith("_")}
+
+
 def save_row(payload: dict) -> dict:
     table = safe_table(payload.get("table"))
-    row = dict(payload.get("row") or {})
-    original = dict(payload.get("original") or {})
+    row = browser_row(payload, "row")
+    original = browser_row(payload, "original")
     _comments, header, rows = read_table(table)
 
     is_new = bool(payload.get("create"))
+    index_hint = payload.get("index")
+    if not isinstance(index_hint, int) or isinstance(index_hint, bool):
+        index_hint = None
 
     unknown = set(row) - set(header)
     if unknown:
@@ -782,6 +1338,13 @@ def save_row(payload: dict) -> dict:
         # never lose a column the browser does not know about
         merged = blank_row(header)
         merged.update({key: value for key, value in row.items() if key in header})
+    elif table in AUX_TABLES:
+        index = find_aux_row(table, rows, original or row, index_hint)
+        if index is None:
+            raise FileNotFoundError("找不到要修改的行（%s id=%s）"
+                                    % (table, (original or row).get("id", "?")))
+        merged = dict(rows[index])
+        merged.update({key: value for key, value in row.items() if key in header})
     else:
         index = find_row(table, rows, original or row)
         if index is None:
@@ -790,6 +1353,7 @@ def save_row(payload: dict) -> dict:
         merged = dict(rows[index])
         merged.update({key: value for key, value in row.items() if key in header})
 
+    warnings = []
     if table in VEHICLE_TABLES:
         # every row except the one being edited, so a rename cannot collide with
         # itself and an add is checked against the whole table
@@ -797,12 +1361,14 @@ def save_row(payload: dict) -> dict:
         renamed = is_new or (merged.get("id") or "").strip() != (original.get("id") or "").strip()
         errors = validate_vehicle_row(table, merged, others, renamed)
     elif table == "liveries.csv":
-        errors = validate_livery_row(merged, all_vehicle_ids(), is_new, rows)
+        report = validate_livery_row(merged, all_vehicle_ids(), is_new, rows, index,
+                                     vehicle_section_counts())
+        errors, warnings = report["errors"], report["warnings"]
     else:
         others = [r for position, r in enumerate(rows) if position != index]
         errors = validate_variant_row(merged, rows, wagon_ids(), others)
     if errors:
-        return {"ok": False, "errors": errors}
+        return {"ok": False, "errors": errors, "warnings": warnings}
 
     if is_new:
         rows.append(merged)
@@ -814,7 +1380,10 @@ def save_row(payload: dict) -> dict:
         "table": table,
         "id": (merged.get("id") or "").strip(),
         "created": is_new,
+        "index": index if not is_new else len(rows) - 1,
         "needs_gen": True,
+        "errors": [],
+        "warnings": warnings,
         "state": build_state(),
     }
 
@@ -843,15 +1412,53 @@ def delete_row(payload: dict) -> dict:
         return {"ok": True, "table": table, "id": vehicle_id, "removed": removed,
                 "state": build_state()}
 
-    # auxiliary tables: one row is identified by its key cells, not by id
-    if not isinstance(key, list):
-        raise ValueError("删除涂装 / 货运外观行需要提供 key")
-    key = [str(part) for part in key]
-    remaining = [row for row in rows if row_key(table, row) != tuple(key)]
-    if len(remaining) == len(rows):
+    # auxiliary tables: one row is identified by its position, then by key cells
+    key = payload.get("key")
+    index_hint = payload.get("index")
+    if not isinstance(index_hint, int) or isinstance(index_hint, bool):
+        index_hint = None
+    original = {"id": key[0] if isinstance(key, list) and key else ""}
+    if isinstance(key, list) and len(key) >= 4:
+        original.update({"sprite_suffix": key[1], "from_year": key[2], "to_year": key[3]})
+    if isinstance(key, list) and len(key) == 2 and table == "cargo_variants.csv":
+        original["variant"] = key[1]
+    index = find_aux_row(table, rows, original, index_hint)
+    if index is None:
         raise FileNotFoundError("%s 中找不到该行" % table)
-    write_table(table, _comments, header, remaining)
-    return {"ok": True, "table": table, "id": key[0] if key else "", "removed": [],
+    removed_row = rows.pop(index)
+    write_table(table, _comments, header, rows)
+    return {"ok": True, "table": table, "id": (removed_row.get("id") or ""),
+            "removed": [], "state": build_state()}
+
+
+def move_row(payload: dict) -> dict:
+    """Move one auxiliary row up or down.
+
+    The row order of one vehicle in ``liveries.csv`` *is* the livery index the
+    refit menu uses, so reordering is an edit, not a convenience.
+    """
+    table = safe_table(payload.get("table"))
+    if table not in AUX_TABLES:
+        raise ValueError("只有涂装与货运外观表可以调整行序")
+    offset = -1 if str(payload.get("direction") or "") == "up" else 1
+    _comments, header, rows = read_table(table)
+    index_hint = payload.get("index")
+    if not isinstance(index_hint, int) or isinstance(index_hint, bool):
+        raise ValueError("调整行序需要提供 index")
+    if not 0 <= index_hint < len(rows):
+        raise ValueError("index %s 超出 %s 的范围" % (index_hint, table))
+    target = index_hint + offset
+    if not 0 <= target < len(rows):
+        return {"ok": True, "table": table, "index": index_hint, "moved": False,
+                "state": build_state()}
+    # only reorder inside one vehicle's own block, otherwise the livery index of
+    # two different vehicles would silently change
+    if (rows[target].get("id") or "").strip() != (rows[index_hint].get("id") or "").strip():
+        return {"ok": True, "table": table, "index": index_hint, "moved": False,
+                "state": build_state()}
+    rows[index_hint], rows[target] = rows[target], rows[index_hint]
+    write_table(table, _comments, header, rows)
+    return {"ok": True, "table": table, "index": target, "moved": True,
             "state": build_state()}
 
 
@@ -1026,10 +1633,33 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
                 self.send_json(schema_module.payload())
                 return
             if parsed.path == "/api/strings":
-                self.send_json({"ok": True, "strings": string_table_rows()})
+                # one list, not two: the browser renders `rows` and needs the
+                # `kind` classification with it.  Publishing a second, poorer
+                # copy as `strings` is what let the string table empty itself
+                # after a save -- that copy had no `kind`, so the kind filter
+                # matched nothing.
+                self.send_json({
+                    "ok": True,
+                    "path": relative(LANG_CSV),
+                    "comments": lang_comments(),
+                    "strings": string_table_rows(),
+                })
                 return
             if parsed.path == "/api/state":
                 self.send_json(build_state())
+                return
+            if parsed.path == "/api/rules":
+                # the tier 3 editor parses the cell as it is typed, through the
+                # generator's own parser, so the preview cannot drift from the
+                # NML the build will produce
+                cell = query.get("cell", [""])[0]
+                parts = query.get("parts", [""])[0]
+                try:
+                    count = len([piece for piece in re.split(r"[|,;]", parts)
+                                 if piece.strip()]) or 3
+                except re.error:
+                    count = 3
+                self.send_json(parse_graphics_cell(cell, count))
                 return
             if parsed.path == "/api/vehicle":
                 table = safe_table(query.get("table", [""])[0])
@@ -1167,14 +1797,32 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
                 self.send_json(save_row(payload))
             elif self.path == "/api/delete":
                 self.send_json(delete_row(payload))
+            elif self.path == "/api/move":
+                self.send_json(move_row(payload))
+            elif self.path == "/api/string":
+                self.send_json(save_lang_row(payload))
+            elif self.path == "/api/string-delete":
+                self.send_json(delete_lang_row(payload))
             elif self.path == "/api/copy":
                 self.send_json(copy_row(payload))
+            elif self.path == "/api/graphics-parts":
+                # the tier 3 editor posts a switch tree and gets back the cell it
+                # renders to, already parsed again -- so the preview is always
+                # the table's content and never the browser's idea of it
+                parts = str(payload.get("parts") or "")
+                count = len([piece for piece in re.split(r"[|,;]", parts)
+                             if piece.strip()]) or 3
+                self.send_json(render_graphics_cell(payload.get("sections"), count))
             elif self.path == "/api/run":
                 self.send_json(start_job(str(payload.get("action") or "")))
             else:
                 self.send_error(HTTPStatus.NOT_FOUND, "unknown API endpoint")
         except (ConnectionAbortedError, ConnectionResetError, BrokenPipeError):
             return
+        except TableChangedError as error:
+            # a conflict, not a bad request: the browser should reload
+            self.send_json({"error": str(error), "reload": True},
+                           HTTPStatus.CONFLICT)
         except FileNotFoundError as error:
             self.send_json({"error": str(error)}, HTTPStatus.NOT_FOUND)
         except (OSError, ValueError, RuntimeError, KeyError, json.JSONDecodeError) as error:

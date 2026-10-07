@@ -15,9 +15,10 @@
 4. [加一辆新车（完整流程）](#4-加一辆新车完整流程)
 5. [制作模型（.vox）](#5-制作模型vox)
 6. [加涂装与货物外观](#6-加涂装与货物外观)
-7. [校核实车数据](#7-校核实车数据)
-8. [疑难排查](#8-疑难排查)
-9. [命令速查](#9-命令速查)
+7. [分节图像规则怎么填](#7-分节图像规则怎么填)
+8. [校核实车数据](#8-校核实车数据)
+9. [疑难排查](#9-疑难排查)
+10. [命令速查](#10-命令速查)
 
 ---
 
@@ -183,9 +184,13 @@ china-set-export-railveh-addon/
 │
 └── tools/
     ├── vehicle_row.py            ★ 安全地增删/复制数据行（自动处理 CSV 引号）
-    ├── clear_vehicle_data.py     ★ 清空全部车辆数据与占位模型
+    ├── clear_vehicle_data.py     ★ 清空全部车辆数据与体素模型
     ├── build_data_tables.py      只重建 liveries.csv 与 cargo_variants.csv
-    └── verify_assets.py          校验：PNML 引用的精灵是否都存在
+    ├── verify_assets.py          校验：PNML 引用的精灵是否都存在
+    ├── check_graphics_parts.py   把每种分节规则写法生成出来并用 nmlc 编译一遍
+    ├── check_section_lengths.py  把每种 parts 形状生成出来并用 nmlc 编译一遍
+    ├── check_gfx_config.py       校验 manifest.json / ttd_palette.json
+    └── check_string_table.py     校验字符串表读写与引用是否自洽
 
 web/
 └── workbench/                    可视化工作台（make workbench）
@@ -214,7 +219,7 @@ data/*.csv ──genpnml.py──┬─► src/vehiclefiles.pnml     （include 
                          ├─► src/vehicleid.pnml
                          ├─► src/vehiclesort.pnml
                          ├─► docs/str.csv
-                         └─► gfx/<目录>/*.vox（占位模型）
+                         └─► gfx/<目录>/*.vox（体素模型，你自己画）
 
 gfx/**/*.vox ──renderobject──► gfx/**/*_32bpp.png
 docs/str.csv ──str-csv.py────► lang/*.lng
@@ -227,7 +232,7 @@ chinasettrainsexport.pnml ──gcc -E──► .nml ──nmlc──► .grf
 | ---- | ---- |
 | `make` | 全套：生成 → 渲染 → 语言 → 编译 |
 | `make -j 8` | 同上，8 个任务并行 |
-| `make gen` | **只**从 `data/` 重新生成 PNML、占位模型与语言表 |
+| `make gen` | **只**从 `data/` 重新生成 PNML、刷新语言表、补齐 gfx 目录（**从不写 `.vox`**） |
 | `make check` | **校验**：代码用到的字符串是否都已定义、有无死字符串 |
 | `make sprites` | **只**渲染 `.vox` → `.png` |
 | `make lang` | **只**从 `docs/str.csv` 生成 `lang/*.lng` |
@@ -267,7 +272,7 @@ python3 tools/vehicle_row.py columns data/locomotives.csv
 ```bash
 python3 tools/vehicle_row.py add data/wagons.csv \
     id=x70ex name_string="X70 (Export) (Flat Wagon)" \
-    category=wagon folder=wagons model=triple "parts=2|2|2" power_section=1 \
+    category=wagon folder=wagons "parts=2|2|2" power_section=1 \
     intro_year=2010 speed=120 weight=22 cost_factor=8 running_cost_factor=5 \
     capacity=70 refittable_cargo_classes="bitmask(CC_PIECE_GOODS|CC_OVERSIZED)"
 ```
@@ -283,14 +288,13 @@ python3 tools/vehicle_row.py add data/wagons.csv \
 | `id` | `ckd8w` | **只允许小写字母、数字、下划线**。它同时是 NML 标识符和精灵文件名 |
 | `name_string` | `CKD8W (Export)` | 车库显示名。生成器会自动映射到 `STR_NAME_CKD8W` |
 | `category` | `diesel` | 决定 ID 区段与 engine class |
-| `folder` | `diesel` | `gfx/` 与 `src/` 下的子目录 |
-| `model` | `single` | `single` = 单体车；`triple` = 三段铰接 |
-| `parts` | `6` | 长度。三段车写 `2\|8\|2` 这种形式 |
-| `power_section` | `0` | 哪一段承载车体、功率、载量 |
+| `folder` | `diesel` | `gfx/` 与 `src/` 下的子目录，可写多级如 `diesel/df4c` |
+| `parts` | `2\|8\|2` | 每段的长度：隐形头 + 车身 + 隐形尾。**数值个数就是节数**，本包的习惯是 3 的倍数（一组三节），生成器对不是 3 的倍数的段数只**警告**而不阻止生成 |
+| `power_section` | `1` | 哪一段是**车身段**：承载贴图与载量的那一段。三段结构就是 `1`（第 2 段）。列名沿用 `power_section`，但功率与重量都是整车属性，不再按段下发 |
 | `intro_year` | `2022` | 引入年份 |
 | `model_life` | `VEHICLE_NEVER_EXPIRES` | 或写年数 |
 | `track_type` | `BACN` | 取自 `src/railtypetable.pnml` |
-| `speed` / `power` / `weight` | `120` / `2800` / `138` | 性能参数 |
+| `speed` / `power` / `weight` | `120` / `2800` / `138` | 性能参数，**整车共用**，不按段分配 |
 | `tractive_effort_coefficient` | `0.26` | 机车用 |
 | `cost_factor` / `running_cost_factor` | `84` / `66` | 成本因子 |
 | `capacity` | `1` | 机车固定写 `1` |
@@ -326,7 +330,7 @@ genpnml: 73 vehicles -> 76 files (0 removed), 111 voxel models
 3. 在 `src/vehiclefiles.pnml` 的对应位置插入它的 `#include`；
 4. 在 `src/vehiclesort.pnml` 里把它排在机车表的位置；
 5. 在 `docs/str.csv` 补上 `STR_NAME_CKD8W`、`STR_FULL_NAME_CKD8W`；
-6. 在 `gfx/diesel/` 生成 `ckd8w.vox` 占位模型。
+6. 生成器会告诉你 `gfx/diesel/ckd8w.vox` 还没有，把它画好放进去。
 
 ### 步骤 3：编译
 
@@ -334,7 +338,7 @@ genpnml: 73 vehicles -> 76 files (0 removed), 111 voxel models
 make
 ```
 
-此时 `ckd8w.vox` 还是占位模型，但**已经可以编译通过**。先用它验证 NML 逻辑正确，
+画好 `ckd8w.vox` 后**就可以编译了**。先验证 NML 逻辑正确，
 再去画真模型——这是推荐的工作顺序。
 
 也可以顺手做一次一致性检查：
@@ -374,7 +378,7 @@ python3 tools/vehicle_row.py remove data/locomotives.csv ckd8w --prune
 make gen
 ```
 
-`--prune` 会删掉该车的 `.pnml` 与占位 `.vox`；即使不用 `--prune`，
+`--prune` 会删掉该车的 `.pnml` 与 `.vox`；即使不用 `--prune`，
 `make gen` 也会根据清单把不再生成的 `.pnml` 清理掉。字符串表会在下一次
 `make gen` 中同步移除该车的条目。
 
@@ -393,20 +397,29 @@ PNML 里 `template_standard ("<目录>", "<基名>")` 会从 `_32bpp.png` 里按
 裁出 8 个等距视角。**渲染参数由同目录的 `manifest.json` 决定，而 `template.pnml`
 里的裁剪坐标必须与它一致**——两者已经配套好，不要只改其中一个。
 
-### 5.2 用占位模型起步（最快）
+### 5.2 需要哪些 `.vox`
 
-`make gen` 已经为每个需要的精灵生成了 `.vox`：
+**生成器不造占位模型。** 它只准备好每个 `gfx/<目录>/` 需要的 `manifest.json`
+与 `ttd_palette.json`，然后列出还缺哪些模型：
 
-* 一个 `<id>.vox`（车体基础涂装）
-* 每个涂装一个 `<id>-<涂装后缀>.vox`
-* 每个货物外观一个 `<货物后缀>.vox` 及 `<货物后缀>-<涂装>.vox`
+```
+genpnml: 1 vehicles -> 4 files (0 removed), 1 gfx folder(s) prepared
+genpnml: 1 model(s) still to be drawn:
+  gfx/dprk/df4c/df4c-korea-2.vox
+```
 
-这些占位模型**形状正确、颜色可区分**，可以直接编译进游戏。
-你可以：
+需要哪些基名，取决于你的数据：
 
-* **直接用**：先玩起来，以后再替换；
-* **在它的基础上改**：用 MagicaVoxel 打开，把方块改掉；
-* **完全重画**：只需保持**画布尺寸与坐标方向一致**。
+| 情况 | 需要的模型 |
+|------|-----------|
+| 涂装的后缀留空 | `<id>.vox` |
+| 涂装后缀为 `green` | `<id>-green.vox` |
+| 货物外观后缀 `coal` | `coal.vox` |
+| 货物外观 + 涂装 | `coal-green.vox` |
+| 分节规则里写到的基名 | `<基名>.vox` |
+
+`tools/verify_assets.py` 会把缺失的再列一遍。**模型必须存在，工程才能编译**——
+nmlc 找不到 `_32bpp.png` 就会报错。
 
 ### 5.3 用 MagicaVoxel 画
 
@@ -414,9 +427,9 @@ PNML 里 `template_standard ("<目录>", "<基名>")` 会从 `_32bpp.png` 里按
 2. **画布尺寸要够长**：长度方向建议 ≥ 32 体素（对应约 192 px 的侧视图），
    宽 8 体素左右，高 12~16 体素。
    参考 `gfx/manifest.json` 的 `size`：`{"x": 192, "y": 48, "z": 80}`。
-3. 让**车体纵轴沿着长度方向**（占位模型就是这样摆的）。
-4. 导出为 `.vox`，覆盖 `gfx/<目录>/<基名>.vox`。
-5. 渲染并检查：
+3. 让**车体纵轴沿着长度方向**，导出为 `.vox`，
+   存成 `gfx/<目录>/<基名>.vox`。
+4. 渲染并检查：
 
 ```bash
 make sprites
@@ -427,8 +440,9 @@ make sprites
    每格右侧带 8 px 透明内边距，所以整张图的宽度不是固定的 992 px 而是它们的
    总和。**如果车头朝向不对、或车体偏上偏下**，在同一张图里就能看出来。
 
-   要看裁剪后的单个视角，用工作台的「模型与精灵图」阶段，它按
-   `manifest.json` 里的真实坐标切图，而不是等分网格。
+   要看裁剪后的单个视角，用工作台的「车辆工作台 → 第 3 层 分节图像」，
+   或右上角的「精灵图预览」：它按 `manifest.json` 里的真实坐标切图，
+   而不是等分网格，还能按方向（SW / SE / NW / NE / W / S / N / E）逐一看。
 
 6. 位置微调：如果车体相对轨道偏高/偏低，把 `src/<目录>/<id>.pnml` 里该车用的
    模板换掉即可——但该文件是生成物，正确做法是在 `data/liveries.csv` 的
@@ -460,8 +474,62 @@ sprite sheets referenced: 110
 missing _32bpp.png: none
 ```
 
-如果列出缺失文件，说明某个涂装/货物外观的 `.vox` 还没生成或没渲染——
-跑 `make gen && make sprites` 即可。
+如果列出缺失文件，说明某个涂装/货物外观的 `.vox` 还没画或没渲染——
+把它画好放进该目录，再跑 `make sprites` 即可。
+
+### 5.6 改车辆的节数
+
+节数由**车辆表 `parts` 列的数值个数**决定，不是单独一个字段。用 `|` 分隔：
+
+```csv
+id,...,parts,power_section,...
+df4c,...,2|8|2,1,...        ← 3 段（前端 2 + 车身 8 + 后端 2）
+df4c,...,2|12|2,1,...       ← 车身加长到 12
+df4c,...,2|8|2|2,1,...      ← 4 段（数一下：四个数）
+df4c,...,6,0,...            ← 1 段，不再铰接
+```
+
+| 想要 | 怎么做 |
+|------|--------|
+| 车身更长/更短 | 只改**中间那个数**，例如 `2|8|2` → `2|12|2` |
+| 增加/减少节数 | 增加或删除 `\|` 分隔的数值个数 |
+| 哪一节是车身 | `power_section` 的**下标**（从 0 起），必须小于节数 |
+
+单位是 4 像素：`8` ≈ 32 px。所以 `2|8|2` 全长约 `(2+8+2) × 4 = 48 px`。
+
+> **段数的习惯是「一组三节」= 3 的倍数**：隐形头 + 载货车身 + 隐形尾，
+> 例如 `2|8|2`，加长一组就是 `2|8|2|2|8|2`。段数不是 3 的倍数（`2|8`、`6` 等）
+> 生成器会**警告**，但**照常生成、照常编译**——`position_in_articulated_veh % N`
+> 对任何 N 都成立，这是本包共同遵守的美术约定，**不是 NewGRF 的硬性要求**。
+> 之所以建议遵守：`min_cars` 按「一辆车 = 三节」计长，共享的长车开关
+> `switch_length_2_<车身>_2` 也只定义了头 2 + 车身 + 尾 2 这种形状。
+
+改完 `make gen` 即可，生成器会自动跟着变：
+
+- `articulated_part` 挂接的节数（N 段 → 递归 N−1 次）
+- 载量按 `power_section` 分配给对应节，其余节为 0
+- 每段的贴图开关 `position_in_articulated_veh % <节数>`
+
+**两个必须同步改的地方：**
+
+1. **涂装的 `graphics_parts`**：用 `;` 分隔的份数**必须等于节数**，
+   否则报「graphics_parts 需要 N 段（与 parts 相同），当前 M 段」。
+   节数一变，每个涂装的规则都要跟着改。
+2. **`length` 的长度值**：`src/functions.pnml` 只为父包用到的形状预定义了
+   `switch_length_2_<车身>_2`（车身 1–8）等少数几个。其它形状生成器会为该车单独
+   输出一个 `switch_<id>_length`，**不需要你手工加开关**。
+
+   想确认你打算用的形状能编译，跑：
+
+   ```bash
+   python3 tools/check_section_lengths.py
+   ```
+
+   它会用一组形状（`2|8|2`、`2|10|2`、`2|8|2|2`、`2|8`、`6` 等）各生成并编译一遍，
+   然后恢复数据表。
+
+**分节图像规则里的 `pos` 数的是"节"不是"车"**：三段车 1 台占 3 节，
+所以改了节数之后，规则里的 `pos <= 2` 这类边界值也要重新算。
 
 ---
 
@@ -469,13 +537,27 @@ missing _32bpp.png: none
 
 ### 6.1 加一套涂装
 
-编辑 `data/liveries.csv`，为同一个 `id` 追加行。**行序即涂装序号**：
+涂装分散在两个地方：**这台车有哪几种涂装**写在 `data/liveries.csv`，
+**每种涂装的车模**是 `gfx/<目录>/<id>[-<后缀>].vox`。工作台把它们放在同一页：
+
+> **工作台 → 车辆工作台 → 第 2 层「涂装管理」**
+
+每一行涂装都会显示它解析出来的模型文件名和该文件的状态（缺 `.vox` / 未渲染 / 已渲染），
+所以不用自己拼后缀。三层的分工是：
+
+| 层 | 管什么 |
+| -- | ------ |
+| 1 车辆属性 | 这台车是什么（id、类别、`parts` 分段、性能……） |
+| 2 涂装管理 | 这台车有哪几种涂装，每种用哪个 `.vox` |
+| 3 分节图像 | 当前涂装的每一段在什么条件下显示哪张图 |
+
+也可以直接编辑 `data/liveries.csv`，为同一个 `id` 追加行。**行序即涂装序号**：
 
 ```csv
-id,sprite_suffix,string,from_year,to_year,purchase_suffix,templates
-ckd8w,,STR_BUILD_YEAR,0,2019,,
-ckd8w-exblue,exblue,STR_EXPORT_BLUE,2020,9999,,
-ckd8w-gray,gray,STR_EXPORT_GRAY,0,9999,,
+id,sprite_suffix,string,from_year,to_year,purchase_suffix,templates,graphics_parts
+ckd8w,,LV_BUILD_YEAR,0,2019,,,
+ckd8w,exblue,LV_EXPORT_BLUE,2020,9999,,,
+ckd8w,gray,LV_EXPORT_GRAY,0,9999,,,
 ```
 
 规则：
@@ -486,17 +568,35 @@ ckd8w-gray,gray,STR_EXPORT_GRAY,0,9999,,
   `Range overlaps` 警告）。
 * 索引 1、2… 是玩家在**改装菜单**里能显式选的涂装。
 * `sprite_suffix` = 精灵基名后缀 → 需要 `gfx/<目录>/<id>-<后缀>.vox`。
-* `string` 是菜单里的显示文字，需是 `docs/str.csv` 中已有的 `STR_` 常量，
-  否则在 `docs/str.csv` 里补一行。
+  留空表示直接用 `<id>.vox`。
+* 同一台车的两行**不能解析出同一个基名**——那会让生成器重复声明同一个精灵集，
+  工作台会直接拦下来。
+* 年份区间重叠只是**警告**（nmlc 取行序靠前的那条 case），不阻止保存。
+* `string` 是菜单里的显示文字。涂装标签统一写成 `LV_<名字>`，生成器把它映射成
+  `docs/str.csv` 里的 `STR_LV_<名字>`；写裸的 `STR_<名字>` 也仍然可用。
+  表里已有 6 个现成的（`LV_ORIGINAL`、`LV_BUILD_YEAR`、`LV_EXPORT_BLUE`、
+  `LV_EXPORT_GREEN`、`LV_EXPORT_GRAY`、`LV_DPRK`）。要新增标签，在
+  **工作台 → 字符串表**里点「新增字符串」，它会被 `make gen` 保留；
+  也可以手工往 `docs/str.csv` 追加。旧工程用
+  `python3 tools/migrate_lv_labels.py` 一次性换名。
+* `graphics_parts` 是**这一行涂装自己的**分节换图规则：按 `;` 一段一份、
+  份内用 `|` 分出「条件=…=贴图基名」的规则路径，生成器把它们编成嵌套开关；
+  决定每一段在整列不同位置上显示哪张贴图。规则写在第 2 层涂装行里，
+  完整语法见[第 7 章](#7-分节图像规则怎么填)，
+  列说明见 [data/README.md 的 per section graphics](../data/README.md#per-section-graphics)。
+  可用变量是 `pos`、`tailpos`、`consist`、`unitpos`，短名和完整 NML 变量名都能写
+  （见 [7.3](#73-四个可用变量)）。
+  留空则该涂装只有车身段出图、两端隐形、整列同图。
 
 然后：
 
 ```bash
-make gen          # 生成新涂装的 spriteset + 占位 .vox
+make gen          # 生成新涂装的 spriteset，并列出还缺的 .vox
 make              # 渲染并编译
 ```
 
-`make gen` 会为 `exblue`、`gray` 生成**颜色不同**的占位模型，便于一眼区分。
+`make gen` 会列出 `df4c-exblue.vox`、`df4c-gray.vox` 这些还缺的模型，逐个画好即可。
+把 `gfx/<目录>/<id>-<后缀>.vox` 换成你自己的模型，再 `make sprites` 即可。
 
 ### 6.2 加一种货物外观
 
@@ -527,7 +627,260 @@ switch_c70ex_<变体>_stage   cargo_count       →  半载 / 满载
 
 ---
 
-## 7. 校核实车数据
+## 7. 分节图像规则怎么填
+
+### 7.1 分段、份数与「一节」的关系
+
+`parts` 列的 `2|8|2` 是**一台车自己的三段**，不是整列的三节：
+
+| 段 | 长度 | 作用 | 一般出图吗 |
+| -- | ---- | ---- | ---------- |
+| 第 1 段 | 2 | 前端隐形车厢，只为让车吻合轨道 | 默认隐形 |
+| 第 2 段 | 8 | **车身**，承载贴图、功率、载量 | 出图 |
+| 第 3 段 | 2 | 后端隐形车厢 | 默认隐形 |
+
+规则同样用 `;` 分成**与段数相同的份数**，第 1 份管第 1 段、第 2 份管第 2 段、
+第 3 份管第 3 段：
+
+```
+第1段的规则 ; 第2段的规则 ; 第3段的规则
+```
+
+三条硬性规则：
+
+1. **份数必须等于 `parts` 的段数。** `parts=3|8|3` 写 3 份，`parts=2|8|2|2|8|2` 写
+   6 份。份数不对生成器直接报「graphics_parts 需要 3 段（与 parts 相同），当前 2 段
+   （空段表示该段隐形；末尾的 ; 也算一段）」，工作台在输入框下面实时提示。
+2. **末尾的 `;` 也算一份，不是标点。** `a;b;c;` 是 **4** 份，对 3 段车报「当前 4 段」；
+   `;a;b` 是 3 份（第 1 份是空的）。
+3. **空的一份 = 这一段隐形**（生成器给它 `empty_sprites`）；**整格留空 = 完全没有规则**，
+   这时按默认行为走：只有车身段画涂装自己的整图，两端隐形。两者的差别见
+   [7.4](#74-规则怎么变成开关)最后一条。
+
+> **段数的习惯是「一组三节」= 3 的倍数**：隐形头 + 载货车身 + 隐形尾，加长一组就是
+> `2|8|2|2|8|2`。段数不是 3 的倍数（`2|8`、`6` 等）生成器只**警告**，照常生成、
+> 照常编译——这是本包共同遵守的美术约定，**不是 NewGRF 的硬性要求**。
+
+### 7.2 一份里面怎么写：条件路径
+
+每一份内部用 `|` 分隔规则，每条规则是一条**路径**：
+
+```
+条件=条件=…=贴图基名      整条路径都满足时用这张图
+贴图基名                  兜底，前面都没命中时用这张
+```
+
+条件本身也含 `=`（`<=`、`==`），所以不能按「最后一个 `=` 左边是条件」来切：生成器
+从左边开始**按最长匹配**切出一个又一个条件，切不动时剩下的必须是一个贴图基名
+（只能用**小写字母、数字、下划线**；`a-b` 这种会被拒绝）。
+
+```
+consist<=6=pos<=2=h_s | consist<=6=h_l | b_l
+```
+
+读作：**整列不超过 6 节**时，`pos<=2` 的那些节用 `h_s`、其余用 `h_l`；**整列超过
+6 节**时一律用 `b_l`。第二条 `consist<=6=h_l` 是「停在半路上」的规则，它的意思是
+「这一层剩下的情况」，也就是那个开关的兜底，**不是**又一个并列分支。
+
+规则**按书写顺序组成一条链**：先写的先判断，没命中的交给下一条；没有条件的裸基名
+是整段的兜底，必须写在最后。
+
+### 7.3 四个可用变量
+
+| 变量 | 实际含义 | 单位 |
+| ---- | -------- | ---- |
+| `pos` | `position_in_consist`，这一节在整列里排第几（从 0 起） | **节**（不是车！三段车 1 台占 3 节） |
+| `tailpos` | `position_in_consist_from_end`，从尾部数第几节 | 节 |
+| `consist` | `num_vehs_in_consist`，整列一共多少节 | 节 |
+| `unitpos` | `position_in_articulated_veh`，这是本车的第几段 | 段 |
+
+条件里的变量**短名和完整 NML 名都可以写**，两者等价；运算符两侧的空格可有可无：
+
+```
+pos<=2        与  position_in_consist <= 2             等价
+tailpos<=2    与  position_in_consist_from_end <= 2    等价
+consist<=6    与  num_vehs_in_consist <= 6             等价
+unitpos==1    与  position_in_articulated_veh == 1     等价
+```
+
+短名只是方便书写的别名。一个条件只能是「变量 比较 数字」，数字必须是无符号整数，
+运算符只有 `==` `<` `<=` `>` `>=`：`consist<=6`、`pos<=2`、`tailpos>=3`、`consist==9`。
+
+**下面这些一律被拒绝**（报「… 无法解析：每一条规则是「条件=条件=…=贴图基名」，
+基名只能用小写字母、数字和下划线」，工作台里是同一句话）：
+
+* `!=` 与 `!`：改用相反的比较，或写两条规则；
+* 一个条件里的 `&`（`|` 会被当成规则分隔符）：拆成多条规则；
+* 算式，例如 `pos/3==1`：改用 `pos==3`，或把区间重新划分；
+* 不认识的变量（`speed<=6`）、**大写的变量名**（`POS<=2`）、乱写的基名（`a-b`、含大写）。
+
+⚠️ 两个最容易踩的坑：
+
+1. **`pos` 数的是节，不是车。** 三段车的第 1 台车是节 0、1、2，第 2 台车是节 3、4、5。
+   想判断「是不是第 1 台车」要写 `pos <= 2`，不能写 `pos == 0`（那只有第 1 段的 1 节
+   满足）。
+2. **同一条判定路径上，同一个变量只能出现一次。** `pos<=2=tailpos<=2=pos<=2=a` 和
+   `pos<=2=a | tailpos<=2=b | pos<=3=c` 都会被拒绝：「第 2 段里重复使用了
+   position_in_consist；同一条路径上的每个条件要换一个变量」。同一个开关的**多个区间**
+   当然可以继续用这个变量：`pos<=2=a | pos>2=b` 是正常写法。
+
+> `unitpos` 是合法变量，但多数情况下多余：生成器已经用
+> `position_in_articulated_veh % 段数` 把每一段分开，**规则所在的第几份**就说明了
+> 这是本车第几段；在规则里再写一次 `unitpos`，只会在这一段内部多套一层同类开关。
+
+### 7.4 规则怎么变成开关
+
+写下的规则先合并成一棵**开关树**，再展开成 NML 的嵌套开关。四条规矩决定它的形状：
+
+* **同一个变量的多个区间 = 一个开关的多个 case**，按书写顺序自上而下试：
+  `pos<=2=a | pos>2=b` 编成一个开关（`0..2 → a`、`3..255 → b`）。
+  同一层可以继续用这个变量写别的区间；但**同一条路径上同一个变量只能出现一次**。
+* **换一个变量 = 变成上一个开关的 default**，也就是链到下一层：
+  `pos<=2=set_head | tailpos<=2=set_tail | set_mid` 编成两个串联的开关。
+* **停在半路上的规则 = 停在哪一层就是哪一层的 default**：
+  `consist<=6=pos<=2=h_s | consist<=6=h_l | b_l` 读作「≤6 节时再按 `pos` 分，
+  否则 `b_l`」。
+* **没有条件的裸基名 = 整段的兜底**，它是最深那个开关的 default。
+
+一个 case 只能对应一张图：同一个条件写两次、基名不同，会报「同时指定了模型 …；
+一个截面上只有一个模型」。后写的 case 如果被前面的**完全覆盖**，会报「被前面的条件
+完全覆盖，永远不会生效」——所以**范围小的写在前面**。
+
+**只有一个 case 也照样生成开关**，因为正是 default 表达了「条件不满足时怎么办」；
+只有整段一个条件都没有时，这一段才直接是一张精灵集，不生成开关。
+
+⚠️ **条件都没命中时画什么：**
+
+* **整格留空**（完全没写规则）：只有车身段（`power_section`）画涂装自己的整图，
+  两端 `empty_sprites` 隐形——这是每辆车默认的样子。
+* **写了规则**：分段开关 `switch_<id>_section_<涂装序号>` 会给每一段都生成 case，
+  **哪一段没有规则、或规则一个都没命中，那一段就是 `empty_sprites`（隐形）**。
+  想让某一段永远不画东西，留空那一份即可。
+
+### 7.5 四个现成的例子
+
+**例 1：每段一张固定图**（最简单，不生成开关）
+
+```
+emu_head;emu_body;emu_tail
+```
+
+第 1、2、3 段各一张图；没有任何条件，生成器直接把三段接到对应的精灵集上。
+
+**例 2：按整列节数换大脸小脸**（最常见）
+
+```
+consist<=6=emu_face_s | emu_face_l;emu_body;consist<=6=emu_face_s | emu_face_l
+```
+
+头尾两份完全相同，所以整列两端看起来一样。带条件的那一份编成一个开关：
+
+```c
+switch (FEAT_TRAINS, SELF, switch_<id>_<涂装序号>_0, num_vehs_in_consist) {
+    0..6: return spriteset_<id>_gfx_emu_face_s;
+    return spriteset_<id>_gfx_emu_face_l;     // 裸基名 = 兜底
+}
+```
+
+**例 3：先看编组长短，再看位置**（嵌套 + 兜底）
+
+```
+consist<=6=pos<=2=h_s | consist<=6=h_l | b_l;body;body
+```
+
+读作：整列不超过 6 节时，前 2 节用 `h_s`、其余用 `h_l`；更长的编组一律 `b_l`。
+生成器先按编组长度分叉，再在「≤6 节」这一支里按位置分叉：
+
+```c
+switch (FEAT_TRAINS, SELF, switch_<id>_<涂装序号>_0_0, position_in_consist) {
+    0..2: return spriteset_<id>_gfx_h_s;
+    return spriteset_<id>_gfx_h_l;            // consist<=6=h_l 停在这一层，成为兜底
+}
+switch (FEAT_TRAINS, SELF, switch_<id>_<涂装序号>_0, num_vehs_in_consist) {
+    0..6: return switch_<id>_<涂装序号>_0_0;
+    return spriteset_<id>_gfx_b_l;            // 裸基名 b_l 是整段的兜底
+}
+```
+
+**例 4：整列分成头 / 中 / 尾**（换变量 = 链到下一层）
+
+```
+pos<=2=set_head | tailpos<=2=set_tail | set_mid;set_mid;set_mid
+```
+
+整列最前面 3 节（1 台车）用 `set_head`，最后 3 节用 `set_tail`，其余用 `set_mid`。
+前两条规则用了**不同变量**，所以编成两个串联的开关：
+
+```c
+switch (FEAT_TRAINS, SELF, switch_<id>_<涂装序号>_0_next,
+        position_in_consist_from_end) {
+    0..2: return spriteset_<id>_gfx_set_tail;
+    return spriteset_<id>_gfx_set_mid;
+}
+switch (FEAT_TRAINS, SELF, switch_<id>_<涂装序号>_0, position_in_consist) {
+    0..2: return spriteset_<id>_gfx_set_head;
+    return switch_<id>_<涂装序号>_0_next;     // 没命中前 3 节，继续按 tailpos 判断
+}
+```
+
+### 7.6 会被拒绝的写法
+
+生成器宁可当场报错，也不生成「永远看不到的图」，常见几种：
+
+| 整格写法（3 段车） | 生成器说什么 |
+| ------------------ | ------------ |
+| `a;b;c;`（多一份） | graphics_parts 需要 3 段（与 parts 相同），当前 4 段（空段表示该段隐形；末尾的 ; 也算一段） |
+| `;consist<=10=a \| consist<=6=b \| c;` | 第 2 段的 '0..6' 被前面的条件完全覆盖，永远不会生效；请把范围小的写在前面，或改成互不重叠的区间 |
+| `;consist<=6=a \| consist<=6=b;` | 第 2 段的 '0..6' 同时指定了模型 'a' 和 'b'；一个截面上只有一个模型，请把其中一个改成范围更小的下一层条件 |
+| `;pos<=2=tailpos<=2=pos<=2=a;`<br>`;pos<=2=a \| tailpos<=2=b \| pos<=3=c;` | 第 2 段里重复使用了 position_in_consist；同一条路径上的每个条件要换一个变量 |
+| `;pos!=2=a;`、`;pos<=2&consist<=6=a;`、`;pos/3==1=a;`、`;speed<=6=a;`、`;pos<=2=a-b;` | 第 2 段的 '…' 无法解析：每一条规则是「条件=条件=…=贴图基名」，基名只能用小写字母、数字和下划线 |
+
+想确认自己的写法行不行，跑：
+
+```bash
+python3 tools/check_graphics_parts.py
+```
+
+它把每一种**合法**写法生成出来再用 `nmlc` 编译一遍（空表、空段、纯分段、
+同变量多区间、混合变量链、嵌套树……），再把每一种**该被拒绝**的写法对照它该报的
+消息检查一遍，跑完自动恢复数据表。
+
+### 7.7 需要几张图，以及在工作台上怎么搭
+
+规则里出现的每个基名都要有 `gfx/<目录>/<基名>.vox`，缺的会在生成时列出来，
+例如 `genpnml: 1 model(s) still to be drawn: gfx/dprk/df4c/df4c-korean-2.vox`。
+**图没画出来之前 `make` 会在 nmlc 那一步失败**，因为精灵路径不存在——这是
+「先有模型后装车」的正常流程，不是生成器的问题。第 3 层「分节图像一览」会把
+当前涂装用到的每个基名连同文件状态列出来。
+
+**第 2 层每一行涂装里的「分节图像规则」是图形化的**，控件和 NML 一一对应：
+
+| 界面上的东西 | 对应的 NML |
+| ------------ | ---------- |
+| 一段的模式「隐形」 | 这一段是 `empty_sprites` |
+| 模式「一张图」+ 模型下拉 | 这一段直接是那个精灵集 |
+| 模式「按条件分」 | 这一段是 `switch (…)` |
+| 块头「按 [变量] 判断」 | `switch` 的选择器 |
+| 「当 [运算符][数值] → 模型」 | 一个 `case`，`return spriteset…` |
+| 「当 … → 再筛一层」 | 该 `case` 里 `return switch…`（嵌套开关） |
+| 「其余 → 模型」 | `default: return spriteset…` |
+| 最外层「其余 → 再筛一层」 | `default: return switch…`（串联的下一层） |
+
+改动不会只放在浏览器里：每次操作都把整棵树发给服务器的
+`POST /api/graphics-parts`，由 `genpnml.py` 写回单元格**再解析一遍**，界面上
+显示的永远是编译时会读到的那一格。所以工作台不可能做出生成器不接受的规则；
+真做不出来（例如表格语言表达不了的嵌套）会直接把原因显示出来。
+想手写整格时，展开「直接编辑文本」即可，两边会互相刷新。
+
+第 3 层另有**缩进树**只读视图，和编译出的开关一一对应：一层开关一行
+「按 `pos` 判断」，分支各缩进一级，叶子写成「`pos 0..2` → `基名`」，
+兜底写成「其余情况 → `基名`」，空段写成「这一段隐形（用 `empty_sprites`）」。
+它走 `/api/rules`，同样由生成器的解析器算出来（生成器文件一变就重新加载），
+所以**预览与生成的 NML 不会说两套话**。
+
+---
+
+## 8. 校核实车数据
 
 `data/*.csv` 中的性能参数目前是**合理工程估算值**，每行 `comment` 都标了
 `(estimate)`。要改成真实数据：
@@ -562,9 +915,9 @@ switch_c70ex_<变体>_stage   cargo_count       →  半载 / 满载
 
 ---
 
-## 8. 疑难排查
+## 9. 疑难排查
 
-### 8.1 构建类
+### 9.1 构建类
 
 | 现象 | 原因与处理 |
 | ---- | ---------- |
@@ -577,7 +930,7 @@ switch_c70ex_<变体>_stage   cargo_count       →  半载 / 满载
 | `make` 报 `git: ambiguous argument` | `min_compatible_version` 里不是有效的 git 提交号。写一个存在的提交号，或写 `git rev-parse HEAD` 的输出 |
 | `make` 报 `*** missing separator` | `Makefile` 的缩进被编辑器换成了空格。**recipe 行必须是 Tab** |
 
-### 8.2 生成器类
+### 9.2 生成器类
 
 | 现象 | 原因与处理 |
 | ---- | ---------- |
@@ -592,7 +945,7 @@ switch_c70ex_<变体>_stage   cargo_count       →  半载 / 满载
 | `make check` 报 `unused` | 语言表里有死字符串。可以删掉，或说明你还在用它（无害） |
 | 生成的某辆车没有货物外观开关 | `cargo_variants.csv` 的 `id` 与 `wagons.csv` 对不上，或该行 `sprite_suffix` 为空（空表示"空车"，不生成精灵） |
 
-### 8.3 游戏内类
+### 9.3 游戏内类
 
 | 现象 | 原因与处理 |
 | ---- | ---------- |
@@ -601,10 +954,11 @@ switch_c70ex_<变体>_stage   cargo_count       →  半载 / 满载
 | 车辆不出现 | 引入了但年份未到；或 `dynamic_engines` 没开；或没启用 GRF |
 | 涂装菜单只有一项 | 该车在 `liveries.csv` 里只有一行。加行即可；注意第 1 行是"自动" |
 | 模型朝向反了 | 在 `data/liveries.csv` 的 `templates` 列改用 `template_reversed`，或在 MagicaVoxel 里把模型绕竖轴转 180° |
-| 三节车只有中间一节有车体 | 正常。`power_section` 决定哪一段显示车体，其他段是 `empty_sprites` |
+| 三节车只有中间一节有车体 | 正常。`power_section` 决定哪一段是车身段，其他段是 `empty_sprites` |
+| 某项规则/参数好像按段生效了 | 只有 `cargo_capacity` 是 OpenTTD 按段读取的。功率、重量、速度写成整车普通属性，**不按段下发** |
 | 车体浮在轨道上方/陷进去 | 换 `template_speciel_0`（偏低）或 `template_speciel_1`（偏高） |
 
-### 8.4 想从头重建
+### 9.4 想从头重建
 
 ```bash
 make clean              # 删除 grf/nml/custom_tags 与所有渲染 PNG
@@ -616,13 +970,13 @@ make -j 8               # 完全重建
 
 ---
 
-## 9. 命令速查
+## 10. 命令速查
 
 ```bash
 # ---------- 构建 ----------
 make                          # 全套：生成 → 渲染 → 语言 → 编译
 make -j 8                     # 并行
-make gen                      # 生成 PNML + 占位 .vox + 刷新 docs/str.csv
+make gen                      # 生成 PNML + 补齐 gfx 目录 + 刷新 docs/str.csv（不写 .vox）
 make check                    # 校验字符串表（有无缺失 / 死条目）
 make sprites                  # 仅渲染 .vox → .png
 make lang                     # 仅生成 lang/*.lng
@@ -631,7 +985,7 @@ make clean_gen                # 删除生成的所有 PNML
 make bundle                   # 打包发布 tar
 
 # ---------- 生成器 ----------
-python3 genpnml.py --data data --out src --vox   # 等价于 make gen 的第二步
+python3 genpnml.py --data data --out src          # 等价于 make gen 的第二步
 python3 genpnml.py --strings                     # 刷新 docs/str.csv（保留已有译文）
 python3 genpnml.py --check                       # 校验字符串表
 python3 genpnml.py --clean                       # 删除生成的 PNML
@@ -643,9 +997,13 @@ python3 tools/vehicle_row.py copy  <表> <源id> <新id> key=value …   # 复�
 python3 tools/vehicle_row.py add   <表> id=… key=value …            # 新增一行
 python3 tools/vehicle_row.py remove <表> <id> [--prune]             # 删除一行
 python3 tools/clear_vehicle_data.py            # 试运行：清空全部车辆数据
-python3 tools/clear_vehicle_data.py --apply    # 真的清空（含占位模型）
+python3 tools/clear_vehicle_data.py --apply    # 真的清空（含体素模型）
 python3 tools/build_data_tables.py   # 只重建 liveries.csv 与 cargo_variants.csv
 python3 tools/verify_assets.py       # 校验 PNML 引用的精灵是否都存在
+python3 tools/check_graphics_parts.py  # 每种分节规则写法都生成并用 nmlc 编译一遍
+python3 tools/check_section_lengths.py # 每种 parts 形状都生成并用 nmlc 编译一遍
+python3 tools/check_gfx_config.py      # manifest.json / ttd_palette.json 是否与生成器一致
+python3 tools/check_string_table.py    # 字符串表的读写与引用是否自洽
 python3 str-csv.py docs/str.csv      # docs/str.csv → lang/*.lng
 
 # ---------- 可视化工作台 ----------
@@ -660,7 +1018,7 @@ nmlc -c out.nml -o out.grf
 
 ---
 
-## 10. 进一步阅读
+## 11. 进一步阅读
 
 | 文档 | 内容 |
 | ---- | ---- |

@@ -8,7 +8,7 @@
 #   switch_<id>_cargo_type    cargo_type_in_veh ->  rows with cargo_types
 #   switch_<id>_<variant>_stage  cargo_count    ->  partial / full load
 #
-# A row whose sprite_suffix is empty means "unloaded, use the livery
-# sprite itself".  See data/README.md for the column reference.
+# A row whose sprite_suffix is empty means the wagon is unloaded and the
+# livery sprite itself is drawn.  See data/README.md for the column reference.
 #
 id,variant,sprite_suffix,cargo_classes,cargo_types,from_index,to_index,template

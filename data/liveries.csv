@@ -5,7 +5,17 @@
 # and switches on build_year, index 1+ can be picked explicitly.
 # A vehicle with no row here gets one default livery whose sprite
 # basename is just its id.
+#
+# graphics_parts belongs to the scheme, not to the vehicle: the artwork
+# that depends on the train's shape is exactly the artwork that differs
+# between schemes, so every row decides for itself which sprite each
+# section shows depending on where the car sits in the whole train.
+#
+# string is the label in the refit menu.  A livery label is written as
+# LV_<NAME> (the generator maps it to the NML constant STR_LV_<NAME>),
+# which is what the workbench's string table filters on.
 # See data/README.md for the column reference.
 #
-id,sprite_suffix,string,from_year,to_year,purchase_suffix,templates
-df4c,origin,STR_ORIGINAL,0,9999,,
+id,sprite_suffix,string,from_year,to_year,purchase_suffix,templates,graphics_parts
+df4c,korea-1,LV_DPRK,0,9999,,,
+df4c,korea-2,STR_LV_BLUEGREEN_ALT,0,9999,,,

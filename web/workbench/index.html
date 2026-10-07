@@ -26,15 +26,15 @@
       <section class="section">
         <div class="section-title">流程</div>
         <div class="stage-nav" id="stageNav">
-          <button data-stage="fleet" class="active"><b>1</b><span>车队账本</span></button>
-          <button data-stage="detail"><b>2</b><span>车辆明细</span></button>
-          <button data-stage="livery"><b>3</b><span>涂装方案</span></button>
+          <button data-stage="fleet" class="active"><b>&#9635;</b><span>车队总览</span></button>
+          <button data-stage="vehicle"><b>1&#8211;3</b><span>车辆工作台</span></button>
           <button data-stage="variant"><b>4</b><span>货运外观</span></button>
-          <button data-stage="sprite"><b>5</b><span>模型与精灵图</span></button>
+          <button data-stage="strings"><b>5</b><span>字符串表</span></button>
           <button data-stage="check"><b>6</b><span>一致性检查</span></button>
           <button data-stage="build"><b>7</b><span>构建 GRF</span></button>
           <button data-stage="guide"><b>8</b><span>指南</span></button>
         </div>
+        <p class="hint">「车辆工作台」把三层放在同一页：车辆属性 → 涂装 → 分节图像。</p>
       </section>
 
       <section class="section">
@@ -46,8 +46,7 @@
       <section class="section">
         <div class="section-title">确定性操作</div>
         <div class="actions">
-          <button data-action="gen">生成车辆代码（含占位模型）</button>
-          <button data-action="vox">只写占位模型</button>
+          <button data-action="gen">生成车辆代码</button>
           <button data-action="render">渲染精灵图</button>
           <button data-action="check">一致性检查</button>
           <button class="warn" data-action="build">编译 GRF</button>
@@ -76,15 +75,21 @@
           <div id="fleetList" class="fleet"></div>
         </section>
 
-        <section class="panel stage-panel hidden" data-panel="detail">
+        <!-- ==================================================================
+             one vehicle, three tiers, one page:
+               1 车辆属性         which vehicle, and what it is made of
+               2 涂装管理         one row per paint scheme, each naming a .vox
+               3 分节图像         which sprite each section shows, where
+             ================================================================== -->
+        <section class="panel stage-panel hidden" data-panel="vehicle">
           <div id="detailEmpty" class="empty">
             <p>还没有选择车辆。</p>
-            <p class="hint">回到「车队账本」点选一台车，或者用「新建车辆」从零开始。</p>
+            <p class="hint">回到「车队总览」点选一台车，或者用「新建车辆」从零开始。</p>
           </div>
           <div id="detailBody" class="hidden">
             <div class="detail-head">
               <div>
-                <div class="section-title">车辆明细</div>
+                <div class="section-title">车辆工作台</div>
                 <div class="detail-title"><b id="detailId">—</b><span id="detailMeta" class="hint"></span></div>
               </div>
               <div class="row detail-actions">
@@ -93,15 +98,41 @@
                 <button class="good" id="saveVehicle">保存</button>
               </div>
             </div>
-            <div id="detailGroups"></div>
-          </div>
-        </section>
 
-        <section class="panel stage-panel hidden" data-panel="livery">
-          <div class="section-title">涂装方案 <span class="hint">liveries.csv</span></div>
-          <p class="hint">同一个 id 的行序决定涂装索引：第 1 行是自动选择项（按 build_year 切换），其余行玩家可在改装菜单里挑选。若某一行带有真实年份区间，自动项就按建造年份切换，最早的一行成为默认。</p>
-          <div id="liveryList" class="aux"></div>
-          <div class="row"><button class="primary" id="addLivery">新增涂装行</button></div>
+            <!-- tier 1 -->
+            <div class="tier" id="tier1">
+              <div class="tier-head">
+                <span class="tier-num">1</span>
+                <div><b>车辆属性</b><span class="hint">决定 ID 段、NML 标识符与精灵图目录</span></div>
+              </div>
+              <div class="factbar" id="vehicleFacts"></div>
+              <div id="detailGroups"></div>
+            </div>
+
+            <!-- tier 2 -->
+            <div class="tier" id="tier2">
+              <div class="tier-head">
+                <span class="tier-num">2</span>
+                <div><b>涂装管理</b>
+                  <span class="hint">每一行是一种涂装：行序就是改装菜单里的涂装序号，
+                  每行一个 .vox 模型，并且各自带一套分节图像规则</span></div>
+              </div>
+              <div id="liveryList" class="aux"></div>
+              <div class="row"><button class="primary" id="addLivery">新增涂装</button>
+                <button id="manageStrings">管理字符串表</button></div>
+            </div>
+
+            <!-- tier 3 -->
+            <div class="tier" id="tier3">
+              <div class="tier-head">
+                <span class="tier-num">3</span>
+                <div><b>分节图像一览</b>
+                  <span class="hint">选中的那种涂装按整列位置换图的结果：规则在
+                  「第 2 层」那一行里编辑，这里只读显示</span></div>
+              </div>
+              <div id="spriteTier"><span class="hint">在上面的涂装表里选一行。</span></div>
+            </div>
+          </div>
         </section>
 
         <section class="panel stage-panel hidden" data-panel="variant">
@@ -115,9 +146,20 @@ switch_&lt;id&gt;_&lt;variant&gt;_stage  cargo_count     →  部分装载 / 满
           <div class="row"><button class="primary" id="addVariant">新增外观行</button></div>
         </section>
 
-        <section class="panel stage-panel hidden" data-panel="sprite">
-          <div class="section-title">模型与精灵图</div>
-          <div id="spriteList" class="sprites"></div>
+        <section class="panel stage-panel hidden" data-panel="strings">
+          <div class="section-title">字符串表 <span class="hint">docs/str.csv</span></div>
+          <p class="hint">涂装名称、车辆名称与所有界面文字都来自这张表。常量（第 1 列）是代码里的引用名，
+          英文与中文是玩家看到的文字。涂装标签统一写成 <span class="mono">LV_名字</span>，
+          代码里是 <span class="mono">STR_LV_名字</span>，所以可以用下面的分类快速筛出来。
+          手工新增的行会被保留，<span class="mono">make gen</span>
+          只刷新它自己生成的行。</p>
+          <div class="row">
+            <input id="stringSearch" placeholder="搜索常量 / 英文 / 中文">
+            <button class="primary" id="addString">新增字符串</button>
+            <button id="reloadStrings">重新读取</button>
+          </div>
+          <div class="string-filters" id="stringFilters"></div>
+          <div id="stringList" class="aux"></div>
         </section>
 
         <section class="panel stage-panel hidden" data-panel="check">
@@ -155,7 +197,7 @@ switch_&lt;id&gt;_&lt;variant&gt;_stage  cargo_count     →  部分装载 / 满
         <pre class="mono small scroll" id="pnmlPreview"><span class="hint">选择一台车后显示。</span></pre>
       </section>
       <section class="section">
-        <div class="section-title">占位模型 / 精灵图</div>
+        <div class="section-title">精灵图预览</div>
         <div class="preview" id="spritePreview"><span class="hint">尚未渲染</span></div>
         <div class="row view-tabs hidden" id="viewTabs"></div>
       </section>

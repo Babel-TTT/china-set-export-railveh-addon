@@ -65,7 +65,7 @@ switch (FEAT_TRAINS, SELF, switch_name_series, getbits(extra_callback_info1, 0, 
 
 // Only stock of this family of sets may be attached, anything else is refused
 switch (FEAT_TRAINS, SELF, onlyallowcst, grfid) {
-    str2number("\5F\5F\03\01"): return CB_RESULT_ATTACH_ALLOW_IF_RAILTYPES;
+    str2number("\5F\5F\03\09"): return CB_RESULT_ATTACH_ALLOW_IF_RAILTYPES;
     str2number("\5F\5F\03\00"): return CB_RESULT_ATTACH_ALLOW_IF_RAILTYPES;
     str2number("\5F\5F\03\02"): return CB_RESULT_ATTACH_ALLOW_IF_RAILTYPES;
     return CB_RESULT_ATTACH_DISALLOW;

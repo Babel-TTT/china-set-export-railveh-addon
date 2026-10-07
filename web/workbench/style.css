@@ -168,6 +168,114 @@ aside.right { border-left: 1px solid var(--line); }
 .view-tabs button.active { border-color: var(--cyan); color: var(--cyan); }
 .scroll { max-height: 320px; overflow: auto; margin: 0; }
 
+/* ------------------------------------------------------------------ tiers */
+.tier { margin-top: 18px; padding: 12px; border: 1px solid var(--line-soft);
+  border-left: 3px solid #3a4d57; border-radius: 8px; background: #0f171b; }
+.tier-head { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 12px; }
+.tier-head > div { display: grid; gap: 2px; }
+.tier-head b { font-size: 14px; }
+.tier-head .hint { font-size: 11px; }
+.tier-num { display: grid; place-items: center; flex: 0 0 auto; width: 24px; height: 24px;
+  border: 1px solid var(--cyan); border-radius: 50%; color: var(--cyan); font-size: 12px; }
+#tier1 { border-left-color: var(--cyan); }
+#tier2 { border-left-color: var(--gold); }
+#tier3 { border-left-color: var(--violet); }
+#tier2 .tier-num { border-color: var(--gold); color: var(--gold); }
+#tier3 .tier-num { border-color: var(--violet); color: var(--violet); }
+
+.factbar { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.fact { display: grid; gap: 1px; padding: 6px 10px; border: 1px solid var(--line-soft);
+  border-radius: 6px; background: #0b1216; }
+.fact span { color: var(--muted); font-size: 10px; letter-spacing: .04em; }
+.fact b { font-family: ui-monospace, Menlo, monospace; font-size: 12px; font-weight: 600; }
+
+/* livery rows: one row = one paint scheme = one .vox = one set of rules */
+.livery { display: grid; gap: 9px; padding: 10px 11px; border: 1px solid var(--line-soft);
+  border-radius: 7px; background: #111a1e; }
+.livery.sel { border-color: var(--violet); background: #15192a; }
+.livery-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.livery-head .livery-no { font-family: ui-monospace, Menlo, monospace; font-size: 12px;
+  color: var(--muted); }
+.livery-head .livery-no b { color: var(--text); font-size: 15px; }
+.livery-head .livery-model { margin-left: auto; display: flex; gap: 8px;
+  align-items: center; font-size: 11px; }
+.livery-head .livery-actions { display: flex; gap: 5px; }
+.livery-head .livery-actions button { min-height: 28px; padding: 3px 8px; }
+.livery-body { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 9px 12px; }
+.livery-body .field { margin-bottom: 0; }
+.livery-rules { grid-column: 1 / -1; }
+.livery-rules textarea { min-height: 58px; font-family: ui-monospace, Menlo, monospace;
+  font-size: 12px; }
+.livery-save { display: flex; gap: 8px; align-items: center; }
+.livery-warn { padding: 6px 9px; border: 1px solid #b98432;
+  border-radius: 6px; color: #ffd79a; font-size: 12px; }
+.livery-error { padding: 6px 9px; border: 1px solid #a44943;
+  border-radius: 6px; color: #ffaaa4; font-size: 12px; }
+.rule-preview { display: flex; flex-direction: column; gap: 6px; margin-top: 5px; }
+
+/* tier 2: the switch-block editor. One block is one generated switch, one row is
+   one case, and the row's target is either a sprite sheet or another switch. */
+.rule-text { margin-top: 6px; }
+.rule-text summary { cursor: pointer; font-size: 12px; color: var(--muted); }
+.rule-text textarea { margin-top: 5px; }
+.rule-empty { padding: 8px 10px; border: 1px dashed var(--line-soft);
+  border-radius: 6px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.rule-section { border: 1px solid var(--line-soft); border-radius: 6px;
+  background: #0b1216; padding: 8px 10px; margin-bottom: 8px; }
+.rule-section-head { display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+  margin-bottom: 6px; }
+.rule-section-head .part { font-family: ui-monospace, Menlo, monospace; font-size: 12px;
+  min-width: 62px; }
+.rule-modes { display: flex; gap: 4px; }
+.rule-block { border-left: 2px solid var(--line-soft); padding-left: 10px;
+  margin: 6px 0 6px 4px; }
+.rule-block-head { display: flex; flex-wrap: wrap; gap: 6px; align-items: center;
+  margin-bottom: 5px; font-size: 12px; }
+.rule-switch { color: var(--muted); }
+.rule-case { display: flex; flex-wrap: wrap; gap: 6px; align-items: center;
+  padding: 4px 0; font-size: 12px; }
+.rule-case.default { border-top: 1px dashed var(--line-soft); margin-top: 2px;
+  padding-top: 6px; }
+.rule-case .rule-when { color: var(--muted); min-width: 30px; }
+.rule-case .rule-arrow { color: var(--muted); }
+.rule-case input[type="number"] { width: 68px; }
+.rule-case select { max-width: 190px; }
+
+/* tier 3: which sprite each section shows */
+.sections { display: grid; gap: 8px; margin-bottom: 12px; }
+.section-rule { display: flex; flex-direction: column; gap: 5px;
+  padding: 7px 10px; border: 1px solid var(--line-soft); border-radius: 6px;
+  background: #0b1216; }
+.section-rule .part { font-family: ui-monospace, Menlo, monospace;
+  font-size: 12px; }
+/* one row per branch, indented by how deep the switch is, so the picture on
+   screen has the same shape as the generated NML */
+.rule-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center;
+  margin-left: calc(var(--depth, 0) * 16px); }
+.rule-row + .rule-row { margin-top: 3px; }
+.section-rule .when { color: var(--muted); font-size: 11px; }
+.sprite-row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center;
+  padding: 8px 10px; border: 1px solid var(--line-soft); border-radius: 6px;
+  background: #111a1e; }
+.sprite-row.current { border-color: var(--violet); }
+.sprite-row .name { font-family: ui-monospace, Menlo, monospace; font-size: 12px;
+  min-width: 150px; }
+.sprite-row canvas { border: 1px solid var(--line-soft); border-radius: 4px;
+  background: #05080a; image-rendering: pixelated; }
+
+/* string table */
+.string-row { display: grid; grid-template-columns: minmax(190px, 1fr) minmax(150px, 1fr)
+    minmax(150px, 1fr) auto; gap: 9px; align-items: end; padding: 8px 10px;
+  border: 1px solid var(--line-soft); border-radius: 6px; background: #111a1e; }
+.string-row.used { border-left: 3px solid var(--green); }
+.string-row.unused { border-left: 3px solid #3a4d57; }
+.string-row .constant { font-family: ui-monospace, Menlo, monospace; font-size: 12px; }
+.string-filters { display: flex; flex-wrap: wrap; gap: 6px; align-items: center;
+  margin: 10px 0; }
+.string-filters button.active { border-color: var(--cyan); background: #17353d;
+  color: var(--cyan); }
+
 .console { min-height: 90px; max-height: 340px; overflow: auto; padding: 10px;
   border: 1px solid var(--line); border-radius: 6px; background: #05080a;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;

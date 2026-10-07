@@ -11,7 +11,11 @@ Reads the declarative tables in ``data/`` and writes
   * ``src/vehiclefiles.pnml``  the include list of those files
   * ``src/vehicleid.pnml``     the ``item (FEAT_TRAINS, name, id) {}`` table
   * ``src/vehiclesort.pnml``   the ``sort (FEAT_TRAINS, [...])`` block
-  * ``gfx/<folder>/<name>.vox`` placeholder voxel models (optional, ``--vox``)
+
+and prepares each ``gfx/<folder>/`` by writing the ``manifest.json`` and
+``ttd_palette.json`` that gorender/renderobject reads next to the models.  It
+does **not** write ``.vox`` models: those are the author's artwork, so a missing
+one is reported instead of filled in with a placeholder.
 
 for every locomotive, coach and wagon described in the tables.
 
@@ -21,7 +25,7 @@ can be compiled side by side with hand written ones.
 
 Usage
 -----
-    python3 genpnml.py --data data --out src --vox
+    python3 genpnml.py --data data --out src
     python3 genpnml.py --clean
 
 Tables (all CSV, UTF-8, ``#`` starts a comment line)
@@ -47,7 +51,7 @@ import struct
 import sys
 import zlib
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Dict, List, NamedTuple, Optional, Sequence, Tuple
 
 # --------------------------------------------------------------------------
 # constants
@@ -261,6 +265,11 @@ class Livery:
     to_year: int = 9999
     purchase_suffix: str = ""
     templates: List[str] = field(default_factory=list)
+    # Per section graphics of *this* scheme: which sprite each section shows,
+    # decided by the section's place in the whole train.  It belongs to the
+    # paint scheme rather than to the vehicle, because the artwork that depends
+    # on the train's shape is exactly the artwork that differs between schemes.
+    graphics_parts: List[List[Tuple[str, str]]] = field(default_factory=list)
 
     @property
     def is_automatic(self) -> bool:
@@ -298,7 +307,6 @@ class Vehicle:
     name_string: str
     category: str
     folder: str
-    model: str
     intro_year: int
     intro_month: int = 1
     intro_day: int = 1
@@ -336,7 +344,6 @@ class Vehicle:
     parts: List[int] = field(default_factory=lambda: [2, 4, 2])
     power_section: int = 0
     # one rule list per section; see parse_graphics_parts()
-    graphics_parts: List[List[Tuple[str, str]]] = field(default_factory=list)
     # shortest train an MU may be started as, in three car units; 0 disables
     min_cars: int = 0
     ac_supply: bool = False
@@ -349,7 +356,6 @@ class Vehicle:
     additional_text: str = ""
     liveries: List[Livery] = field(default_factory=list)
     cargo_variants: List[CargoVariant] = field(default_factory=list)
-    vox_part: str = "body"
     source: str = ""
 
     # -- helpers -----------------------------------------------------------
@@ -394,15 +400,6 @@ class Vehicle:
         return self.ac_supply and (self.is_locomotive or self.category == "coach")
 
     @property
-    def is_articulated(self) -> bool:
-        return len(self.parts) > 1
-
-    @property
-    def body_part(self) -> int:
-        """Index of the part that carries the real body sprite."""
-        return self.power_section
-
-    @property
     def default_livery(self) -> Livery:
         return self.liveries[0]
 
@@ -416,14 +413,34 @@ class Vehicle:
         return "RUNNING_COST_DIESEL" if self.category == "diesel" else "RUNNING_COST_ELECTRIC"
 
     @property
-    def length_switch(self) -> str:
-        if not self.is_articulated:
+    def known_length_switch(self) -> str:
+        """A ``switch_length_*`` name that ``src/functions.pnml`` declares.
+
+        The parent set only predefines ``switch_length_2_<body>_2`` for body
+        lengths 1..8 and a few asymmetric shapes; those are the cases that can
+        name a shared block.  Anything else needs a switch of its own, because
+        a property cannot hold an inline ``switch`` -- NML answers
+        ``Syntax error, unexpected token "switch"``.
+        """
+        parts = self.parts
+        if len(parts) != 3:
             return ""
-        if len(self.parts) == 3 and self.parts[0] == self.parts[2]:
-            return "switch_length_2_%d_2" % self.parts[1]
-        if len(self.parts) == 3:
-            return "switch_length_2_%d_%d" % (self.parts[1], self.parts[2])
+        if parts[0] == parts[2] and 1 <= parts[1] <= 8:
+            return "switch_length_2_%d_2" % parts[1]
+        if (parts[0], parts[1], parts[2]) in ((2, 1, 1), (2, 6, 4), (2, 8, 6)):
+            return "switch_length_2_%d_%d" % (parts[1], parts[2])
         return ""
+
+    @property
+    def length_switch(self) -> str:
+        """The value of the ``length`` property.
+
+        A name when ``functions.pnml`` has one, otherwise the name of the block
+        ``emit_length_switch()`` writes for this vehicle.
+        """
+        if len(self.parts) == 1:
+            return str(self.parts[0])
+        return self.known_length_switch or "switch_%s_length" % self.id
 
     @property
     def part_count(self) -> int:
@@ -435,21 +452,61 @@ class Vehicle:
 # --------------------------------------------------------------------------
 
 
-def _load_liveries(rows: List[Dict[str, str]]) -> Dict[str, List[Livery]]:
+# A livery label is written ``LV_<NAME>`` and becomes ``STR_LV_<NAME>``.  The
+# six labels the generator ships used to be plain ``STR_`` constants, so a table
+# written before the convention existed still names them that way; they are
+# mapped across rather than reported as missing, because the text they refer to
+# is the same and only the constant moved.
+LEGACY_LIVERY_LABELS = {
+    "STR_BUILD_YEAR": "STR_LV_BUILD_YEAR",
+    "STR_ORIGINAL": "STR_LV_ORIGINAL",
+    "STR_EXPORT_BLUE": "STR_LV_EXPORT_BLUE",
+    "STR_EXPORT_GREEN": "STR_LV_EXPORT_GREEN",
+    "STR_EXPORT_GRAY": "STR_LV_EXPORT_GRAY",
+    "STR_DPRK_LIVERY": "STR_LV_DPRK",
+}
+
+
+def _livery_label(cell: str) -> str:
+    """The NML string constant a livery's ``string`` cell refers to.
+
+    A livery label is written as ``LV_<NAME>`` in the table and becomes
+    ``STR_LV_<NAME>`` in the code, so the labels of one kind are grouped in
+    ``docs/str.csv`` instead of being buried among the interface strings.  A
+    label that is still one of the six old constants is mapped across, and any
+    other ``STR_`` constant is passed through unchanged, which keeps a project
+    that deliberately points two schemes at one shared label working.
+    """
+    text = (cell or "").strip()
+    if not text:
+        return ""
+    if text.startswith("LV_"):
+        return "STR_" + text
+    return LEGACY_LIVERY_LABELS.get(text, text)
+
+
+def _load_liveries(rows: List[Dict[str, str]], sections: Dict[str, int]) -> Dict[str, List[Livery]]:
     table: Dict[str, List[Livery]] = {}
     counters: Dict[str, int] = {}
     for row in rows:
         vehicle = row["id"]
         index = counters.get(vehicle, 0)
         counters[vehicle] = index + 1
+        cell = (row.get("graphics_parts", "") or "").strip()
+        # the section count is the vehicle's, so parsing has to wait until the
+        # vehicle tables are known; a scheme for a vehicle that does not exist
+        # is left empty and reported by validate_vehicles()
+        graphics_parts = parse_graphics_parts(cell, sections[vehicle]) \
+            if cell and vehicle in sections else []
         livery = Livery(
             index=index,
             suffix=row.get("sprite_suffix", ""),
-            string=row.get("string", ""),
+            string=_livery_label(row.get("string", "")),
             from_year=_int(row.get("from_year", ""), 0),
             to_year=_int(row.get("to_year", ""), 9999),
             purchase_suffix=row.get("purchase_suffix", ""),
             templates=_split_list(row.get("templates", "")),
+            graphics_parts=graphics_parts,
         )
         table.setdefault(vehicle, []).append(livery)
     return table
@@ -489,17 +546,6 @@ def _build_vehicle(
     if power_section >= len(parts):
         power_section = len(parts) - 1
 
-    model = (row.get("model", "") or "triple").strip().lower()
-
-    # Every vehicle is three sections: the two short ones at the ends exist
-    # only to make the vehicle fit the track, and the middle one carries the
-    # body sprite and the load.  There is no single section model any more.
-    if model != "triple":
-        raise ValueError(
-            "%s: model 只能是 triple（每台车固定为 2 + 车身 + 2 三段），"
-            "当前是 %r" % (vehicle_id, model))
-
-    graphics_parts = parse_graphics_parts(row.get("graphics_parts", ""), len(parts))
     min_cars = _int(row.get("min_cars", ""), 0)
     if min_cars < 0:
         raise ValueError("%s: min_cars 不能为负" % vehicle_id)
@@ -509,7 +555,6 @@ def _build_vehicle(
         name_string=row.get("name_string", "") or ("STR_NAME_" + vehicle_id.upper()),
         category=category,
         folder=row.get("folder", "") or category,
-        model=model,
         intro_year=_int(row.get("intro_year", ""), 1980),
         intro_month=_int(row.get("intro_month", ""), 1),
         intro_day=_int(row.get("intro_day", ""), 1),
@@ -543,7 +588,6 @@ def _build_vehicle(
         wagon_decay=_bool(row.get("wagon_decay", ""), category in ("wagon",)),
         parts=parts,
         power_section=power_section,
-        graphics_parts=graphics_parts,
         min_cars=min_cars,
         ac_supply=_bool(row.get("ac_supply", ""), False),
         airconditioned=_bool(row.get("airconditioned", ""), False),
@@ -554,7 +598,6 @@ def _build_vehicle(
         name_callback=_bool(row.get("name_callback", ""), category not in ("coach", "wagon", "unit_wagon")),
         additional_text=(row.get("additional_text", "") or "").strip(),
         source=source,
-        vox_part=(row.get("vox_part", "") or "body").strip(),
     )
 
     # The purchase window text is assembled from the data: the cell in the
@@ -598,7 +641,7 @@ def _join_list_cell(value: str) -> str:
 
 def load_vehicles(data_dir: str) -> List[Vehicle]:
     """Load every vehicle table and return the vehicles in menu order."""
-    liveries = _load_liveries(_read_csv(os.path.join(data_dir, "liveries.csv")))
+    livery_rows = _read_csv(os.path.join(data_dir, "liveries.csv"))
     cargo_variants = _load_cargo_variants(_read_csv(os.path.join(data_dir, "cargo_variants.csv")))
 
     tables = [
@@ -607,12 +650,20 @@ def load_vehicles(data_dir: str) -> List[Vehicle]:
         ("wagons.csv", "wagon"),
         ("unit_wagons.csv", "unit_wagon"),
     ]
+    # read every vehicle table once: the livery table needs each vehicle's
+    # section count, which only the vehicle rows carry
+    loaded = [(filename, forced, _read_csv(os.path.join(data_dir, filename)))
+              for filename, forced in tables]
+    rows_by_id = {row["id"]: row for _f, _c, rows in loaded for row in rows}
+
+    liveries = _load_liveries(livery_rows,
+                              {vehicle: _section_count(row)
+                               for vehicle, row in rows_by_id.items()})
 
     vehicles: List[Vehicle] = []
     seen: Dict[str, str] = {}
-    for filename, forced_category in tables:
-        path = os.path.join(data_dir, filename)
-        for row in _read_csv(path):
+    for filename, forced_category, rows in loaded:
+        for row in rows:
             category = forced_category or (row.get("category", "") or "diesel").strip().lower()
             if category not in BANDS:
                 raise SystemExit(
@@ -628,12 +679,20 @@ def load_vehicles(data_dir: str) -> List[Vehicle]:
             seen[vehicle.id] = filename
             vehicles.append(vehicle)
 
-    problems = validate_vehicles(vehicles)
+    problems, warnings = validate_vehicles(vehicles)
+    for warning in warnings:
+        print("WARNING: %s" % warning, file=sys.stderr)
     if problems:
         for problem in problems:
             print("ERROR: %s" % problem, file=sys.stderr)
         raise SystemExit(1)
     return vehicles
+
+
+def _section_count(row: Dict[str, str]) -> int:
+    """How many sections a vehicle row declares, for the livery table."""
+    parts = [_int(part) for part in _split_list(row.get("parts", "")) if part.strip()]
+    return len(parts) if parts else 3
 
 
 def assign_ids(vehicles: Sequence[Vehicle]) -> Dict[str, int]:
@@ -672,6 +731,10 @@ class Emitter:
     # -- spritesets --------------------------------------------------------
 
     def spriteset(self, name: str, folder: str, basename: str, template: str) -> None:
+        # The template's first parameter is the folder *path* as a quoted string,
+        # not an identifier, which is what lets the folder column name a nested
+        # directory such as "diesel/df4c".  nmlc 0.9.0 has no string rewriting
+        # (subst() is undefined), so the path has to be passed through whole.
         self.add(
             "spriteset (%s, ZOOM_LEVEL_IN_4X, BIT_DEPTH_32BPP) {\n"
             '    %s ("%s", "%s")\n'
@@ -696,6 +759,20 @@ class Emitter:
         self.add("\n".join(lines))
 
 
+def _identifier_part(text: str) -> str:
+    """Make one piece of an NML identifier out of a sprite suffix.
+
+    A suffix is a *file name* fragment, so it legitimately contains dashes
+    (``korea-1`` makes the sheet ``df4c-korea-1``), but NML identifiers may not.
+    Such a suffix may also start with a dash, which the livery table uses to mean
+    "the whole basename is a suffix" (``df4c,-korean-1`` gives
+    ``df4c--korean-1``); those runs of dashes are folded so the identifier stays
+    readable.
+    """
+    cleaned = re.sub(r"[^A-Za-z0-9]+", "_", text or "").strip("_")
+    return cleaned
+
+
 def _livery_basename(vehicle: Vehicle, livery: Livery) -> str:
     """Sprite sheet basename of a livery: <id> or <id>-<livery suffix>."""
     if livery.suffix:
@@ -705,14 +782,14 @@ def _livery_basename(vehicle: Vehicle, livery: Livery) -> str:
 
 def _livery_spriteset_name(vehicle: Vehicle, livery: Livery) -> str:
     if livery.suffix:
-        return "spriteset_%s_%s" % (vehicle.id, livery.suffix)
+        return "spriteset_%s_%s" % (vehicle.id, _identifier_part(livery.suffix))
     return "spriteset_%s" % vehicle.id
 
 
 def _livery_purchase_name(vehicle: Vehicle, livery: Livery) -> str:
     suffix = livery.purchase_suffix or livery.suffix
     if suffix:
-        return "spriteset_%s_purchase_%s" % (vehicle.id, suffix)
+        return "spriteset_%s_purchase_%s" % (vehicle.id, _identifier_part(suffix))
     return "spriteset_%s_purchase" % vehicle.id
 
 
@@ -726,16 +803,16 @@ def _cargo_spriteset_name(vehicle: Vehicle, variant: CargoVariant, livery: Liver
     """
     parts = ["spriteset", vehicle.id]
     if variant.suffix:
-        parts.append(variant.suffix.replace("-", "_"))
+        parts.append(_identifier_part(variant.suffix))
     if livery.suffix:
-        parts.append(livery.suffix)
+        parts.append(_identifier_part(livery.suffix))
     return "_".join(parts)
 
 
 def _cargo_switch_prefix(vehicle: Vehicle, livery: Livery) -> str:
     """Prefix for the cargo switches of one livery (unique per livery)."""
     if livery.suffix:
-        return "switch_%s_%s" % (vehicle.id, livery.suffix)
+        return "switch_%s_%s" % (vehicle.id, _identifier_part(livery.suffix))
     return "switch_%s" % vehicle.id
 
 
@@ -759,13 +836,22 @@ def emit_vehicle(sprites: Emitter, switches: Emitter, items: Emitter,
 
     # ---- spritesets ---------------------------------------------------
     # Several cargo rows may share one appearance (e.g. mail and express both
-    # ride in a container), so the same spriteset must only be defined once.
+    # ride in a container), and several schemes may share one section graphic,
+    # so the same spriteset must only be defined once.  A basename is a file, so
+    # a second definition with a different template would be a contradiction.
     seen_spritesets: set = set()
+    seen_templates: Dict[str, str] = {}
 
     def define_spriteset(name: str, basename: str, template: str) -> None:
         if name in seen_spritesets:
+            if seen_templates[name] != template:
+                raise SystemExit(
+                    "ERROR: %s: 贴图基名 %s 被两个涂装用不同的模板定义"
+                    "（%s 与 %s）；同一个基名只能有一个模板"
+                    % (vehicle.id, basename, seen_templates[name], template))
             return
         seen_spritesets.add(name)
+        seen_templates[name] = template
         sprites.spriteset(name, folder, basename, template)
 
     for livery in vehicle.liveries:
@@ -788,11 +874,13 @@ def emit_vehicle(sprites: Emitter, switches: Emitter, items: Emitter,
                 variant.template,
             )
 
-    # graphics_parts: one spriteset per basename the column names, so a section
-    # can show artwork of its own.
-    for basename in graphics_rule_basenames(vehicle.graphics_parts):
-        define_spriteset(_graphics_part_spriteset(vehicle, basename), basename,
-                         _graphics_part_template(vehicle, basename))
+    # graphics_parts: one spriteset per basename the *schemes* name, so a
+    # section can show artwork of its own.  Two schemes that share a basename
+    # share the spriteset, which is why a differing template is an error.
+    for livery in vehicle.liveries:
+        for basename in graphics_rule_basenames(livery.graphics_parts):
+            define_spriteset(_graphics_part_spriteset(vehicle, basename), basename,
+                             _graphics_part_template(vehicle, livery, basename))
 
     # ---- cargo appearance chain (freight wagons) ----------------------
     cargo_root: Optional[str] = None
@@ -822,35 +910,30 @@ def emit_vehicle(sprites: Emitter, switches: Emitter, items: Emitter,
     else:
         livery_cases = [(str(livery.index), _livery_spriteset_name(vehicle, livery))
                         for livery in vehicle.liveries]
-    # The plain per-livery graphics, one entry per livery index.  These stay the
-    # fallback of every graphics_parts rule, so refitting keeps working.
+    # The plain per-livery graphics, one entry per livery index.  These are what
+    # a section falls back to when its scheme names no rule of its own.
     livery_roots: Dict[int, str] = {}
     for index, root in livery_cases:
         livery_roots[int(index)] = root
-    livery_root = _emit_livery_switch(switches, vehicle, livery_cases, cargo_root)
 
     # ---- graphics dispatch ---------------------------------------------
-    # graphics_parts names a sprite per section, chosen by the section's place
-    # in the whole train; without it the body section keeps the livery graphic
-    # and the other sections stay invisible.
+    # Every scheme owns its own graphics_parts, so the dispatch is built from
+    # the livery table: each scheme gets a section switch, and the outer switch
+    # selects it by cargo_subtype.  A scheme that names no rules keeps the plain
+    # behaviour -- the body section draws, the invisible ends stay invisible.
+    # That dispatch replaces the older livery switch entirely, so the switch is
+    # only emitted for the one case that still needs it; emitting it anyway
+    # would leave an orphan block and an nmlc "not referenced" warning.
     parts_root = _emit_graphics_parts(switches, vehicle, livery_roots)
     if parts_root:
         default_graphics = parts_root
-    elif vehicle.is_articulated:
-        graphics_switch = "switch_%s_graphics" % vid
-        switches.switch(
-            graphics_switch,
-            f"position_in_articulated_veh % {vehicle.part_count}",
-            [(str(vehicle.power_section), livery_root)],
-            "empty_sprites;",
-        )
-        default_graphics = graphics_switch
     else:
-        default_graphics = livery_root
+        # no scheme of this vehicle has any section switch, so the plain livery
+        # graphics are the default
+        default_graphics = _emit_livery_switch(switches, vehicle, livery_cases, cargo_root)
 
     # ---- item ---------------------------------------------------------
-    items.add(render_item(vehicle, default_graphics, capacity_switch,
-                          start_stop_switch, livery_root))
+    items.add(render_item(vehicle, default_graphics, capacity_switch, start_stop_switch))
 
 
 def _emit_livery_switch(emitter: Emitter, vehicle: Vehicle,
@@ -1007,7 +1090,7 @@ def _emit_capacity_switch(emitter: Emitter, vehicle: Vehicle) -> Optional[str]:
     Returns ``None`` for a single section vehicle, which uses the plain
     property instead.
     """
-    if not vehicle.is_articulated:
+    if vehicle.part_count < 2:
         return None
     switch = "switch_%s_capacity" % vehicle.id
     if vehicle.capacity_by_cargo:
@@ -1046,8 +1129,7 @@ def _num(value: float) -> str:
 
 
 def render_item(vehicle: Vehicle, default_graphics: str,
-                capacity_switch: Optional[str], start_stop_switch: str,
-                livery_root: str) -> str:
+                capacity_switch: Optional[str], start_stop_switch: str) -> str:
     vid = vehicle.id
     is_loco = vehicle.is_locomotive
     lines: List[str] = []
@@ -1143,7 +1225,7 @@ def render_item(vehicle: Vehicle, default_graphics: str,
     add("        // Graphics")
     add("        default:                        %s;" % default_graphics)
     add("        purchase:                       %s;" % _livery_purchase_name(vehicle, vehicle.default_livery))
-    if vehicle.is_articulated:
+    if vehicle.part_count > 1:
         add("        articulated_part:               switch_%s_articulated_part;" % vid)
     if vehicle.can_supply_head_end_power:
         add("        visual_effect_and_powered:      switch_%s_visual;" % vid)
@@ -1151,13 +1233,12 @@ def render_item(vehicle: Vehicle, default_graphics: str,
     # stats overrides
     add("")
     add("        // Stats")
-    if vehicle.is_articulated and vehicle.length_switch:
+    if vehicle.length_switch:
         add("        length:                         %s;" % vehicle.length_switch)
-    if capacity_switch and vehicle.is_articulated:
+    if capacity_switch:
         # Only a vehicle split into sections needs the callback: the load
         # belongs to the section named by power_section, and a plain number
-        # would force the same capacity onto every section.  A single section
-        # vehicle uses the plain property.
+        # would force the same capacity onto every section.
         add("        cargo_capacity:                 %s;" % capacity_switch)
     # Weight and power are plain properties.  Both are shared by the whole
     # vehicle, articulated parts included, which is why the parent set writes a
@@ -1282,19 +1363,37 @@ def emit_livery_callbacks(emitter: Emitter, vehicles: Sequence[Vehicle]) -> None
             continue
         cases: List[Tuple[str, str]] = []
         for livery in vehicle.liveries:
-            label = livery.string or "STR_ORIGINAL"
+            label = livery.string or "STR_LV_ORIGINAL"
             if livery.is_automatic:
-                label = livery.string or "STR_BUILD_YEAR"
+                label = livery.string or "STR_LV_BUILD_YEAR"
             cases.append((str(livery.index), "return string(%s)" % label))
         emitter.switch("switch_%s_cargo_subtype" % vehicle.id, "cargo_subtype", cases,
                        "return CB_RESULT_NO_TEXT")
+
+
+def emit_length_switch(emitter: Emitter, vehicle: Vehicle) -> None:
+    """Emit this vehicle's ``length`` switch when no shared one fits.
+
+    A ``.length`` property takes either a number or the name of a switch, so a
+    shape ``src/functions.pnml`` does not predefine has to become a block of its
+    own instead of an inline switch.
+    """
+    if len(vehicle.parts) == 1 or vehicle.known_length_switch:
+        return
+    cases = [(str(position), "return %d" % length)
+             for position, length in enumerate(vehicle.parts)]
+    # the last section is the default, which also covers any position past the
+    # end (position_in_articulated_veh wraps, so this is belt and braces)
+    emitter.switch("switch_%s_length" % vehicle.id,
+                   f"position_in_articulated_veh % {len(vehicle.parts)}",
+                   cases[:-1], "return %d" % vehicle.parts[-1])
 
 
 def emit_articulated_callbacks(emitter: Emitter, vehicles: Sequence[Vehicle]) -> None:
     """Emit articulated_part and, for locomotives, visual_effect_and_powered."""
     for vehicle in vehicles:
         vid = vehicle.id
-        if vehicle.is_articulated:
+        if vehicle.part_count > 1:
             extra = vehicle.part_count - 1
             switch = "switch_%s_articulated_part" % vid
             emitter.add(
@@ -1321,181 +1420,38 @@ def _visual_effect(vehicle: Vehicle) -> str:
     return "VISUAL_EFFECT_ELECTRIC"
 
 
-# --------------------------------------------------------------------------
-# placeholder voxel models
-# --------------------------------------------------------------------------
+def collect_sprite_basenames(vehicle: Vehicle) -> List[str]:
+    """Every sprite sheet basename this vehicle needs.
 
-VOX_PALETTE: Dict[str, int] = {
-    "body": 1,     # dark blue   - export livery body
-    "coach": 2,    # green       - passenger stock
-    "wagon": 3,    # brown       - freight stock
-    "loco": 4,     # blue        - locomotive
-    "gray": 5,
-}
+    This is the only authority on which ``gfx/<folder>/<basename>.vox`` files a
+    set of rows requires: ``tools/verify_assets.py`` and the workbench both ask
+    for it rather than reimplementing the suffix rules.
 
-
-def _vox_palette_cell(index: int) -> Tuple[int, int, int, int]:
-    """Return a MagicaVoxel palette entry.  index is 0..255."""
-    presets = {
-        0: (0x00, 0x00, 0x00, 0xFF),   # unused / empty
-        1: (0x22, 0x44, 0x88, 0xFF),   # export blue
-        2: (0x1F, 0x6B, 0x3A, 0xFF),   # coach green
-        3: (0x7A, 0x52, 0x2C, 0xFF),   # wagon brown
-        4: (0x1B, 0x4F, 0x9C, 0xFF),   # locomotive blue
-        5: (0x9A, 0x9A, 0x9A, 0xFF),   # light grey
-        6: (0x2B, 0x2B, 0x2B, 0xFF),   # underframe, bogies
-        7: (0xE0, 0xE0, 0xE0, 0xFF),   # roof
-        8: (0xC0, 0x30, 0x30, 0xFF),   # DPRK scheme
-        9: (0x2E, 0x6F, 0xB8, 0xFF),   # Ukraine scheme
-        10: (0x1A, 0x1A, 0x1A, 0xFF),  # coal loaded
-        11: (0xB0, 0x60, 0x30, 0xFF),  # container
-        12: (0x55, 0x6B, 0x4A, 0xFF),  # tarpaulin
-        13: (0x6E, 0x7B, 0x8A, 0xFF),  # steel
-        14: (0x4A, 0x5A, 0x6A, 0xFF),  # liquid, barrel
-        15: (0x8A, 0x7A, 0x5A, 0xFF),  # general goods
-        16: (0xD8, 0x40, 0x40, 0xFF),  # vehicles
-        17: (0x40, 0x90, 0xD0, 0xFF),  # engineering supplies
-        18: (0x2A, 0x6A, 0x50, 0xFF),  # oil
-        19: (0xC8, 0xA0, 0x20, 0xFF),  # hazardous
-        20: (0xE8, 0xE8, 0xC8, 0xFF),  # mail
-    }
-    if index in presets:
-        return presets[index]
-    return (0x60, 0x60, 0x60, 0xFF)
-
-
-def write_vox(path: str, size: Tuple[int, int, int],
-              voxels: Sequence[Tuple[int, int, int, int]]) -> None:
-    """Write a minimal MagicaVoxel .vox file."""
-    sx, sy, sz = size
-    body = bytearray()
-
-    def chunk(cid: bytes, content: bytes, children: bytes = b"") -> bytes:
-        return (cid + struct.pack("<ii", len(content), len(children))
-                + content + children)
-
-    body += chunk(b"SIZE", struct.pack("<iii", sx, sy, sz))
-
-    xyzi = struct.pack("<i", len(voxels))
-    for x, y, z, colour in voxels:
-        xyzi += struct.pack("<BBBB", x, y, z, colour)
-    body += chunk(b"XYZI", xyzi)
-
-    rgba = bytearray()
-    for index in range(256):
-        rgba += bytes(_vox_palette_cell(index))
-    body += chunk(b"RGBA", bytes(rgba))
-
-    data = b"VOX " + struct.pack("<i", 150) + bytes(body)
-    with open(path, "wb") as handle:
-        handle.write(data)
-
-
-def build_placeholder_vox(vehicle: Vehicle,
-                          colour: Optional[int] = None
-                          ) -> Tuple[Tuple[int, int, int], List[Tuple[int, int, int, int]]]:
-    """A crude but correctly shaped block model for a vehicle.
-
-    ``colour`` overrides the body colour, which is how a livery or a loaded
-    wagon gets its own model until a real one is drawn.
+    Only basenames something actually names are returned.  The bare ``<id>`` is
+    deliberately *not* included: it is the spriteset a livery with no suffix
+    uses, so it appears here as soon as such a livery exists, and listing it
+    unconditionally would report a model as missing that the generated code
+    never references.
     """
-    length = max(8, int(round(vehicle.parts[vehicle.power_section] * 4)))
-    width = 8
-    height = 12 if vehicle.is_locomotive else 11
-    body_z0 = 3                        # above the bogies
-    body_z1 = height - 1
-    roof_z1 = height
+    wanted: List[str] = []
 
-    if colour is None:
-        colour = {
-            "coach": 2,
-            "wagon": 3,
-        }.get(vehicle.category, 4)
+    def add(basename: str) -> None:
+        if basename and basename not in wanted:
+            wanted.append(basename)
 
-    voxels: List[Tuple[int, int, int, int]] = []
-
-    def box(x0: int, x1: int, y0: int, y1: int, z0: int, z1: int, tone: int) -> None:
-        for x in range(x0, x1):
-            for y in range(y0, y1):
-                for z in range(z0, z1):
-                    voxels.append((x, y, z, tone))
-
-    # main body
-    box(0, length, 0, width, body_z0, body_z1, colour)
-    # roof
-    box(0, length, 1, width - 1, body_z1, roof_z1, 7)
-    # underframe
-    box(2, length - 2, 1, width - 1, 2, body_z0, 6)
-    # bogies
-    box(2, 6, 1, width - 1, 0, 2, 6)
-    box(length - 6, length - 2, 1, width - 1, 0, 2, 6)
-
-    if vehicle.is_locomotive:
-        # a slightly narrower cab block at both ends
-        box(0, 3, 1, width - 1, body_z1, height + 1, colour)
-        box(length - 3, length, 1, width - 1, body_z1, height + 1, colour)
-
-    return (length, width, height + 1), voxels
-
-
-# suffix -> palette index used for the placeholder model, so that a livery or
-# a loaded wagon is visually distinguishable straight away
-SUFFIX_COLOUR: Dict[str, int] = {
-    "exblue": 4,
-    "green": 2,
-    "gray": 5,
-    "dprk": 8,
-    "ukraine": 9,
-    "coal": 10,
-    "container": 11,
-    "cover": 12,
-    "metal": 13,
-    "bucket": 14,
-    "goods": 15,
-    "vehi": 16,
-    "ensp": 17,
-    "oil": 18,
-    "haz": 19,
-    "mail": 20,
-}
-
-
-def _colour_for_suffix(suffix: str, default: int) -> int:
-    for key, value in SUFFIX_COLOUR.items():
-        if key in suffix:
-            return value
-    return default
-
-
-def collect_sprite_basenames(vehicle: Vehicle) -> List[Tuple[str, int]]:
-    """Every sprite sheet basename + body colour this vehicle needs.
-
-    The generator writes one placeholder voxel model per entry so that the
-    whole pipeline (render -> nmlc) succeeds out of the box.  Replacing a .vox
-    with real artwork is all that is needed later.
-    """
-    base_colour = {"coach": 2, "wagon": 3}.get(vehicle.category, 4)
-    wanted: List[Tuple[str, int]] = []
-
-    def add(basename: str, colour: int) -> None:
-        if basename and all(basename != existing for existing, _ in wanted):
-            wanted.append((basename, colour))
-
-    add(vehicle.id, base_colour)
     for livery in vehicle.liveries:
         if livery.suffix:
-            add(_livery_basename(vehicle, livery),
-                _colour_for_suffix(livery.suffix, base_colour))
+            add(_livery_basename(vehicle, livery))
     for variant in vehicle.cargo_variants:
         if not variant.suffix:
             continue
-        add(variant.suffix, _colour_for_suffix(variant.suffix, base_colour))
+        add(variant.suffix)
         for livery in vehicle.liveries:
             if livery.suffix:
-                add(_cargo_basename(variant, livery),
-                    _colour_for_suffix(variant.suffix, base_colour))
-    for basename in graphics_rule_basenames(vehicle.graphics_parts):
-        add(basename, _colour_for_suffix(basename, base_colour))
+                add(_cargo_basename(variant, livery))
+    for livery in vehicle.liveries:
+        for basename in graphics_rule_basenames(livery.graphics_parts):
+            add(basename)
     return wanted
 
 
@@ -1504,10 +1460,12 @@ def collect_sprite_basenames(vehicle: Vehicle) -> List[Tuple[str, int]]:
 # whole train rather than by its place inside the vehicle
 # --------------------------------------------------------------------------
 
-# The table writes conditions in a small, lowercase language.  This is the
+# The table writes conditions in a small, lowercase language, and this is the
 # translation into NML, so nobody has to remember the exact NewGRF variable
-# names.  Condition text is otherwise passed through unchanged, which means the
-# full NML expression language stays available.
+# names.  A condition is deliberately limited to ``variable 比较 数字``: the
+# consist variables may only ever be the *selector* of a switch, so anything
+# richer cannot be compiled into one, and predicate_selector() refuses it with
+# an explanation instead of letting nmlc fail later.
 GRAPHICS_VARIABLES = {
     "pos": "position_in_consist",
     "tailpos": "position_in_consist_from_end",
@@ -1527,10 +1485,13 @@ class GraphicsPartsError(ValueError):
 def graphics_condition(text: str) -> str:
     """Translate one condition from the table language into NML.
 
-    ``pos % 3`` becomes ``position_in_consist % 3``.  Everything else is passed
-    through, so the whole NML expression language is available.  ``pos`` and
-    ``tailpos`` count vehicle parts, exactly like ``position_in_consist``, so
-    the Nth car of a three part vehicle is ``pos / 3``.
+    ``pos <= 2`` becomes ``position_in_consist <= 2``.  ``pos``/``tailpos`` count
+    vehicle *parts*, exactly like ``position_in_consist`` does, so a three
+    section vehicle occupies ``pos`` 0..2 and "the first car" is ``pos <= 2``.
+
+    Only the variables above are recognised; anything else in a condition is
+    refused here rather than pasted into NML, and predicate_selector() then
+    narrows the expression down to the simple comparison a switch can select on.
     """
     translated = re.sub(
         r"\b(" + "|".join(GRAPHICS_VARIABLES) + r")\b",
@@ -1605,14 +1566,88 @@ def predicate_selector(text: str):
         "生成器会把它们编成嵌套开关" % text.strip())
 
 
-def parse_graphics_parts(text: str, part_count: int) -> List[List[Tuple[str, str]]]:
-    """Parse a ``graphics_parts`` cell into one rule list per section.
+class TreeNode:
+    """One switch of a section's rule tree.
+
+    ``selector`` is the NML variable this switch branches on.  Every child is one
+    branch: its ``case`` is the value or range that selects it, and it either
+    shows a sprite sheet (``basename``) or continues into the switch named by
+    ``selector_below``.  A branch with an empty ``case`` is that switch's
+    ``default``, and a node with no ``selector`` is a plain holder.
+
+    The selection lives on the *branch* rather than on the node, which is what
+    keeps the two shapes apart::
+
+        pos<=2=a | pos>2=b           one switch, two cases
+        pos<=2=a | tailpos<=2=b | c  two switches in a chain, plus a catch-all
+
+    The second is not a switch with three cases -- its rules test two different
+    variables, and a switch can only select on one -- it is the first switch
+    sending everything it did not match to the second.  A flat list of
+    ``(selector, case, basename)`` triples cannot tell those apart, so the parser
+    builds the tree directly.
+    """
+
+    selector: str
+    case: str
+    basename: str
+    selector_below: str
+    children: List["TreeNode"]
+
+    def __init__(self, selector: str = "", case: str = "",
+                 basename: str = "", selector_below: str = "",
+                 children: Optional[List["TreeNode"]] = None) -> None:
+        self.selector = selector
+        self.case = case
+        self.basename = basename
+        self.selector_below = selector_below
+        self.children = list(children) if children else []
+
+    @property
+    def is_leaf(self) -> bool:
+        """True when this branch shows a sheet instead of switching again."""
+        return not self.selector_below
+
+    def walk(self) -> Iterator["TreeNode"]:
+        """This node and every node below it, parents before children."""
+        yield self
+        for child in self.children:
+            for node in child.walk():
+                yield node
+
+    def __repr__(self) -> str:  # keeps test failures readable
+        if self.selector:
+            return "TreeNode(switch on %r, %d branches)" % (
+                self.selector, len(self.children))
+        return "TreeNode(%r -> %r)" % (self.case, self.basename)
+
+
+BASENAME_RE = re.compile(r"[a-z0-9_]+")
+
+
+def parse_graphics_parts(text: str, part_count: int) -> List[List[TreeNode]]:
+    """Parse a ``graphics_parts`` cell into one rule tree per section.
 
     The cell is split on ``;`` -- one piece per section -- and each piece on
-    ``|``.  A rule inside a piece is either ``condition=basename`` or a bare
-    ``basename``, the latter being the fallback used when nothing matched.
-    Rules are tried in order and an empty condition always matches, so such a
-    rule ends the list for that section.
+    ``|``.  A rule is a *path* through the tree: every condition on the way down,
+    then the sprite sheet, all joined with ``=``::
+
+        consist<=6=pos<=2=head_s | consist<=6=head_l | body_l
+
+    reads as "on a train of at most six parts: the first two parts show
+    ``head_s`` and the rest ``head_l``; on a longer train, ``body_l``".
+
+    A condition itself contains ``=`` (``<=``, ``==``), so the split is not
+    simply "the last ``=``": each leading piece is tried as a condition until
+    what is left is a bare basename.  Two rules that share the start of their
+    path describe two branches of *one* switch, which is why the pieces are
+    merged back into a tree here rather than left as a list of paths.
+
+    The number of pieces is checked against ``parts``, so a trailing ``;`` counts
+    as a real section instead of punctuation: ``a;b;`` is three sections, which
+    is what a 3 section vehicle needs, and ``a;b;c;`` is four and an error.  An
+    empty piece stays invisible, which is how the two end pieces of the usual
+    ``2|8|2`` vehicle are written.
     """
     text = (text or "").strip()
     if not text:
@@ -1621,100 +1656,621 @@ def parse_graphics_parts(text: str, part_count: int) -> List[List[Tuple[str, str
     if len(sections) != part_count:
         raise GraphicsPartsError(
             "graphics_parts 需要 %d 段（与 parts 相同），当前 %d 段"
+            "（空段表示该段隐形；末尾的 ; 也算一段）"
             % (part_count, len(sections)))
-    parsed: List[List[Tuple[str, str]]] = []
+
+    parsed: List[List[TreeNode]] = []
     for index, piece in enumerate(sections):
-        rules: List[Tuple[str, str]] = []
+        paths: List[Tuple[List[Tuple[str, str]], str]] = []
         for raw in piece.split("|"):
             rule = raw.strip()
             if not rule:
                 continue
-            if "=" in rule:
-                # a condition may itself contain '=' (>=, <=, ==), so the
-                # basename is what follows the *last* one
-                condition, _, basename = rule.rpartition("=")
-                condition = condition.strip()
-                if not condition:
-                    raise GraphicsPartsError(
-                        "第 %d 段的 %r 缺少 = 左边的条件" % (index + 1, rule))
-            else:
-                condition = ""
-                basename = rule
-            basename = basename.strip()
-            if not basename:
-                raise GraphicsPartsError("第 %d 段的 %r 缺少贴图基名" % (index + 1, rule))
-            if not re.fullmatch(r"[a-z0-9_]+", basename):
+            # a condition contains '=', so walk the pieces left to right and
+            # let predicate_selector decide where a condition ends
+            rest = rule
+            chain: List[Tuple[str, str]] = []
+            while True:
+                candidate, found = _longest_condition(rest)
+                if not found:
+                    break
+                chain.append((candidate[0], candidate[1]))
+                rest = rest[len(candidate[2]):].lstrip("=").strip()
+                if not rest:
+                    break
+            if not BASENAME_RE.fullmatch(rest):
                 raise GraphicsPartsError(
-                    "贴图基名 %r 只能用小写字母、数字和下划线" % basename)
-            rules.append((condition, basename))
-        if not rules:
-            raise GraphicsPartsError("第 %d 段没有任何规则" % (index + 1))
-        parsed.append(rules)
+                    "第 %d 段的 %r 无法解析：每一条规则是"
+                    "「条件=条件=…=贴图基名」，基名只能用小写字母、数字和下划线"
+                    % (index + 1, rule))
+            paths.append((chain, rest))
+        # an empty section is valid and means "this section stays invisible"
+        parsed.append(_graphics_rule_tree(paths, index + 1))
     return parsed
 
 
-def graphics_rule_basenames(rules: List[List[Tuple[str, str]]]) -> List[str]:
+def _graphics_rule_tree(paths: List[Tuple[List[Tuple[str, str]], str]],
+                        section: int) -> List[TreeNode]:
+    """Build one section's switch tree out of the rules written for it.
+
+    Rules form a **chain**: they are tried in the order they are written, the
+    first one whose condition holds picks the sheet, and a rule with no condition
+    is the catch-all at the end.  That is what a chain of hand written switches
+    does -- each one tests a variable and sends the values it does not match on
+    to the next -- and it is why two rules may name *different* variables at the
+    same level::
+
+        pos<=2=set_head | tailpos<=2=set_tail | set_mid
+
+    is "the first three parts show set_head, the last three show set_tail,
+    everything else shows set_mid", which is two switches in a row plus a
+    catch-all, not one switch with three cases.
+
+    Rules that share a condition start with, though, are *not* a chain: they are
+    two branches of one switch, so ``pos<=2=a | pos>2=b`` is one switch with two
+    cases, and a rule that stops part way down becomes the default of the switch
+    at the level where it stopped.
+    """
+    if not paths:
+        return []
+    roots: List[TreeNode] = []
+    for chain, basename in paths:
+        _graphics_insert(roots, chain, basename, section)
+    for root in roots:
+        _graphics_merge_cases(root, section)
+        _graphics_check_cases(root, section)
+    return roots
+
+
+def _graphics_insert(roots: List[TreeNode],
+                     chain: List[Tuple[str, str]],
+                     basename: str, section: int) -> None:
+    """Add one rule path to the section's chain of switches.
+
+    A rule whose first condition names the variable the deepest switch already
+    uses joins that switch as another branch; a rule naming a different variable
+    becomes that switch's *default*, so the chain continues from there.  A rule
+    with no condition at all is the catch-all at the end of the chain.
+    """
+    if not chain:
+        # a rule with no condition at all: this section shows one sheet whatever
+        # the consist looks like, so it is the default of the deepest switch
+        _graphics_set_default(_graphics_deepest_switch(roots), basename, section)
+        return
+
+    parent = _graphics_chain_parent(roots, chain[0][0], section)
+    _graphics_leaf(parent, chain, basename, section)
+
+
+def _graphics_switch_selector(node: TreeNode) -> str:
+    """The variable a switch container selects on.
+
+    A container is either a root node (``selector``) or a switch's default branch
+    (``selector_below``), and both hold the case branches in ``children``.  The
+    chain needs one name for "which variable does this switch test".
+    """
+    return node.selector or node.selector_below
+
+
+def _graphics_chain_parent(roots: List[TreeNode], selector: str,
+                           section: int) -> TreeNode:
+    """The switch of the chain that a condition on ``selector`` continues.
+
+    A selector the deepest switch already uses joins that switch, so
+    ``pos<=2=a | pos>2=b`` describes one switch rather than two.  Any other
+    selector carries the chain on: that switch's default becomes a switch on the
+    new variable, which is exactly how the same thing is written by hand.
+    """
+    if not roots:
+        node = TreeNode(selector=selector)
+        roots.append(node)
+        return node
+    node = _graphics_deepest_switch(roots)
+    if _graphics_switch_selector(node) == selector:
+        return node
+    tail = None
+    for child in node.children:
+        if not child.case:
+            tail = child
+            break
+    if tail is None:
+        tail = TreeNode()
+        node.children.append(tail)
+    _graphics_open_below(tail, selector, section)
+    return tail
+
+
+def _graphics_deepest_switch(roots: List[TreeNode]) -> TreeNode:
+    """The last switch of the chain, which is where a catch-all belongs."""
+    if not roots:
+        node = TreeNode()
+        roots.append(node)
+        return node
+    node = roots[-1]
+    for child in node.children:
+        if not child.case and child.selector_below:
+            return _graphics_deepest_switch([child])
+    return node
+
+
+def _graphics_leaf(parent: TreeNode, chain: List[Tuple[str, str]], basename: str,
+                   section: int) -> Optional[TreeNode]:
+    """Walk ``chain`` under ``parent``, creating and merging branches, and put
+    ``basename`` at the end of it.  Returns the branch, or None for a chain with
+    no conditions."""
+    if not chain:
+        return None
+    node = parent
+    for depth, (selector, case) in enumerate(chain):
+        last = depth == len(chain) - 1
+        branch = None
+        for existing in node.children:
+            if existing.case == case:
+                branch = existing
+                break
+        if branch is None:
+            branch = TreeNode(case=case)
+            node.children.append(branch)
+        if last:
+            _graphics_set_leaf(branch, basename, case, section)
+        else:
+            _graphics_open_below(branch, chain[depth + 1][0], section)
+        node = branch
+    return node
+
+
+def _graphics_set_leaf(branch: TreeNode, basename: str, case: str,
+                       section: int) -> None:
+    """Give ``branch`` its sprite sheet, or record it as that level's default."""
+    if branch.is_leaf:
+        if branch.basename and branch.basename != basename:
+            raise GraphicsPartsError(
+                "第 %d 段的 %r 同时指定了模型 %r 和 %r；一个截面上只有一个"
+                "模型，请把其中一个改成范围更小的下一层条件"
+                % (section, case, branch.basename, basename))
+        branch.basename = basename
+        return
+    # the branch already switches further down, so this sheet is what an
+    # unmatched value of that switch shows
+    _graphics_set_default(branch, basename, section)
+
+
+def _graphics_set_default(branch: TreeNode, basename: str, section: int) -> None:
+    """Record ``basename`` as the default of the switch inside ``branch``."""
+    for child in branch.children:
+        # a child with no case is a default unless it is the chain continuing
+        # into the next switch, which is a default *and* a switch
+        if not child.case and not child.selector_below:
+            if child.basename and child.basename != basename:
+                raise GraphicsPartsError(
+                    "第 %d 段的 %r 一层有两个默认模型（%r 和 %r）"
+                    % (section, branch.case, child.basename, basename))
+            child.basename = basename
+            return
+    branch.children.append(TreeNode(basename=basename))
+
+
+def _graphics_open_below(branch: TreeNode, selector: str, section: int) -> None:
+    """Make ``branch`` switch again on ``selector`` instead of drawing a sheet."""
+    if branch.is_leaf:
+        if branch.basename:
+            # the sheet this branch showed becomes the default of the switch it
+            # is turning into, which is where a hand written switch puts it
+            basename, branch.basename = branch.basename, ""
+            branch.children.append(TreeNode(basename=basename))
+    elif branch.selector_below != selector:
+        raise GraphicsPartsError(
+            "第 %d 段的 %r 下面同时按 %s 和 %s 判断；同一层只能筛选一个变量"
+            % (section, branch.case, branch.selector_below, selector))
+    branch.selector_below = selector
+
+
+def _graphics_merge_cases(node: TreeNode, section: int) -> None:
+    """Collapse branches that select on the same value into one.
+
+    Two rules can name the same condition and still be written as separate
+    branches -- ``pos<=2=a | pos<=2=b`` -- which a hand written switch could only
+    express by nesting.  Merging them keeps one case per value, because nmlc
+    rejects a switch that names a case twice.
+
+    A branch with no case is not a case at all: it is either the switch's default
+    or the chain continuing into the next switch, and the two are allowed to sit
+    side by side.  Two *defaults* are not, so that is reported.
+    """
+    merged: List[TreeNode] = []
+    default_seen: Optional[TreeNode] = None
+    for branch in node.children:
+        if branch.selector_below or not branch.case:
+            if not branch.selector_below:
+                if default_seen is not None:
+                    raise GraphicsPartsError(
+                        "第 %d 段写了两个没有条件的默认贴图（%r 和 %r）；"
+                        "一段只能有一个默认"
+                        % (section, default_seen.basename, branch.basename))
+                default_seen = branch
+            merged.append(branch)
+            continue
+        double = None
+        for existing in merged:
+            if existing.case == branch.case:
+                double = existing
+                break
+        if double is None:
+            merged.append(branch)
+        else:
+            _graphics_merge_branches(double, branch, section)
+    node.children = merged
+    for branch in node.children:
+        if branch.selector_below:
+            _graphics_merge_cases(branch, section)
+
+
+def _graphics_merge_branches(into: TreeNode, other: TreeNode, section: int) -> None:
+    """Fold one branch with the same case as another into it."""
+    if into.is_leaf and other.is_leaf:
+        if into.basename != other.basename:
+            raise GraphicsPartsError(
+                "第 %d 段的 %r 同时指定了 %r 和 %r；一个截面上只有一个模型，"
+                "请改用更细的条件（例如把其中一个改成范围更小的一层）"
+                % (section, into.case, into.basename, other.basename))
+        return
+    if into.is_leaf != other.is_leaf:
+        raise GraphicsPartsError(
+            "第 %d 段的 %r 既直接指定了模型又写了下一层条件，无法同时成立"
+            % (section, into.case))
+    into.children.extend(other.children)
+
+
+def _graphics_case_range(case: str) -> Tuple[int, int]:
+    """The inclusive bounds a parsed case covers."""
+    if ".." in case:
+        low, _, high = case.partition("..")
+        return int(low), int(high)
+    value = int(case)
+    return value, value
+
+
+def _graphics_check_cases(root: TreeNode, section: int,
+                          ancestors: Tuple[str, ...] = ()) -> None:
+    """Refuse sibling cases that swallow each other, and repeated selectors.
+
+    A switch is tried top to bottom and stops at the first match, so
+    ``consist<=6=a | consist<=10=b`` would never reach ``b``: ``<=6`` catches
+    every value ``<=10`` as well.  Catching it here is worth the trouble because
+    the mistake looks perfectly reasonable and would otherwise show up as a
+    sprite that simply never appears in game.  A gap between two cases is fine --
+    that is what the fallback is for.
+
+    ``ancestors`` holds the variables of the switches above this one.  Selecting
+    on one of them again would need two switches on the same variable nested in
+    each other, which is both confusing and rejected by the emitter, so it is
+    refused here instead -- at parse time, which is what lets the workbench show
+    the same complaint the build would.
+    """
+    selector = _graphics_switch_selector(root)
+    if selector:
+        if selector in ancestors:
+            raise GraphicsPartsError(
+                "第 %d 段里重复使用了 %s；同一条路径上的每个条件要换一个变量"
+                % (section, selector))
+        ancestors = ancestors + (selector,)
+
+    ranges = [(_graphics_case_range(branch.case), branch.case)
+              for branch in root.children if branch.case]
+    for index, ((low, high), case) in enumerate(ranges):
+        for other_low, other_high in (r[0] for r in ranges[:index]):
+            if other_low <= low and high <= other_high:
+                raise GraphicsPartsError(
+                    "第 %d 段的 %r 被前面的条件完全覆盖，永远不会生效；"
+                    "请把范围小的写在前面，或改成互不重叠的区间"
+                    % (section, case))
+    for branch in root.children:
+        if branch.selector_below:
+            _graphics_check_cases(branch, section, ancestors)
+
+
+def tree_to_json(node: TreeNode) -> Dict[str, object]:
+    """One switch-tree node as a plain dict, for the workbench editor.
+
+    This is the shape the editor loads, edits and posts back, so it is defined
+    here next to the parser rather than in the web layer: one definition means
+    the editor cannot drift from what the generator reads.
+    """
+    return {
+        "selector": node.selector,
+        "case": node.case,
+        "basename": node.basename,
+        "selector_below": node.selector_below,
+        "children": [tree_to_json(child) for child in node.children],
+    }
+
+
+def tree_from_json(data: object) -> TreeNode:
+    """Rebuild one switch-tree node from the dict ``tree_to_json`` wrote."""
+    if not isinstance(data, dict):
+        raise GraphicsPartsError("规则树的一个节点不是对象：%r" % (data,))
+    node = TreeNode(
+        selector=str(data.get("selector") or ""),
+        case=str(data.get("case") or ""),
+        basename=str(data.get("basename") or ""),
+        selector_below=str(data.get("selector_below") or ""),
+    )
+    children = data.get("children") or []
+    if not isinstance(children, list):
+        raise GraphicsPartsError("规则树的 children 不是列表：%r" % (children,))
+    node.children = [tree_from_json(child) for child in children]
+    return node
+
+
+def render_graphics_json(sections: object, part_count: int) -> str:
+    """Render the editor's tree back into a ``graphics_parts`` cell.
+
+    The result is parsed again before it is returned, so the editor can show the
+    author exactly what the table will contain -- including a normalised form
+    that differs from what was typed.
+    """
+    if not isinstance(sections, list):
+        raise GraphicsPartsError("sections 不是列表：%r" % (sections,))
+    if not sections:
+        # the editor's "这一行的涂装完全没有规则" state, which is not the same as
+        # N empty sections: the generator then uses its plain per-section default
+        return ""
+    if len(sections) != part_count:
+        raise GraphicsPartsError(
+            "graphics_parts 需要 %d 段（与 parts 相同），当前 %d 段"
+            % (part_count, len(sections)))
+    trees = [[tree_from_json(root) for root in (section or [])]
+             for section in sections]
+    return render_graphics_parts(trees)
+
+
+def render_graphics_parts(rules: Sequence[Sequence[TreeNode]]) -> str:
+    """Turn parsed section trees back into a ``graphics_parts`` cell.
+
+    The workbench editor needs this round trip to be exact: it shows the tree the
+    parser produced, the author edits it with the same building blocks NML has
+    (a switch, its cases, each case a sheet or another switch), and the cell
+    written back into the table has to parse to the same tree again.  The order
+    below is what makes that true -- cases first, then defaults, and a switch
+    that is another switch's default written as its own rules after them, which
+    is exactly how the chain is written by hand.
+    """
+    return ";".join(_render_section(roots) for roots in rules)
+
+
+def _render_section(roots: Sequence[TreeNode]) -> str:
+    """One ``;`` piece: the rules of a single section."""
+    if not roots:
+        return ""
+    root = roots[0]
+    if not root.selector:
+        # No condition anywhere, so the section is one sheet (or invisible).  A
+        # branch under such a root cannot be written at all: the cell would say
+        # "this section always shows X" and the branch would disappear, so it is
+        # refused rather than silently dropped.
+        sheets = [node for node in root.walk() if node.basename]
+        branches = [node for node in root.walk()
+                    if node is not root and (node.case or node.selector_below)]
+        if branches or len(sheets) > 1:
+            raise GraphicsPartsError(
+                "这一段没有筛选条件，写回表格只会剩下「整段一张图」；"
+                "请先选一个变量再分区间")
+        return sheets[0].basename if sheets else ""
+    return " | ".join(_render_container(root, ()))
+
+
+def _render_container(node: TreeNode, prefix: Sequence[str]) -> List[str]:
+    """The rule paths of one switch and of everything below it.
+
+    ``prefix`` holds the conditions already walked through, so a nested switch
+    writes ``consist<=6=pos<=2=h_s`` while the outermost one writes ``pos<=2=a``.
+    """
+    selector = _graphics_switch_selector(node)
+    if not selector:
+        raise GraphicsPartsError("这一段有一层开关没有选择变量，无法写回表格")
+
+    paths: List[str] = []
+    for branch in node.children:
+        if not branch.case:
+            continue
+        path = list(prefix) + [_render_condition(selector, branch.case)]
+        if branch.selector_below:
+            paths.extend(_render_container(_graphics_sub_switch(branch), path))
+        else:
+            paths.append("=".join(path + [branch.basename]))
+
+    for branch in node.children:
+        if branch.case:
+            continue
+        if branch.selector_below:
+            # A switch that is another switch's default is the chain continuing,
+            # which the cell language can only write at the top level: further
+            # down, the same variable would have to be selected twice on one path
+            # and the parser refuses that.
+            if prefix:
+                raise GraphicsPartsError(
+                    "「%s」这一层里还有一层开关，表格语言写不出来；"
+                    "请把它改成模型，或移到最外层" % "=".join(prefix))
+            paths.extend(_render_container(_graphics_sub_switch(branch), prefix))
+        elif branch.basename:
+            paths.append("=".join(list(prefix) + [branch.basename]))
+    return paths
+
+
+def _graphics_sub_switch(branch: TreeNode) -> TreeNode:
+    """The switch a branch continues into, as a node of its own."""
+    node = TreeNode(selector=branch.selector_below)
+    node.children = branch.children
+    return node
+
+
+def _render_condition(selector: str, case: str) -> str:
+    """Write one case back as the condition text the cell language uses."""
+    low, high = _graphics_case_range(case)
+    if low == high:
+        return "%s==%d" % (selector, low)
+    if low == 0:
+        return "%s<=%d" % (selector, high)
+    if high == 255:
+        return "%s>=%d" % (selector, low)
+    raise GraphicsPartsError(
+        "区间 %s 写不回表格（表格只能写「小于等于」「大于等于」和「等于」）"
+        % case)
+
+
+def _longest_condition(text: str) -> Tuple[Tuple[str, str, str], bool]:
+    """Split the longest valid condition off the front of a rule path.
+
+    Returns ``((selector, case, raw), True)`` or ``(("", "", ""), False)``.  The
+    longest match is what makes ``consist<=6=pos<=2`` two conditions rather than
+    one comparison against the text ``6=pos<=2``.  A comparison operator is
+    required, so a bare sprite sheet name is never mistaken for a condition,
+    which is what used to swallow the fallback in ``… | body_l``.
+    """
+    best = ("", "", "")
+    for end in range(len(text), 0, -1):
+        candidate = text[:end]
+        if not re.search(r"[=<>]", candidate):
+            continue
+        try:
+            selector, case = predicate_selector(candidate)
+        except GraphicsPartsError:
+            continue
+        best = (selector, case, candidate)
+        break
+    return best, bool(best[0])
+
+
+def graphics_rule_basenames(rules: List[List[TreeNode]]) -> List[str]:
     """Every basename a parsed graphics_parts list refers to, in order."""
     seen: List[str] = []
     for section in rules:
-        for _condition, basename in section:
-            if basename not in seen:
-                seen.append(basename)
+        for root in section:
+            for node in root.walk():
+                if node.basename and node.basename not in seen:
+                    seen.append(node.basename)
     return seen
 
 
 def emit_graphics_rules(switches: "Emitter", vehicle: Vehicle, prefix: str,
-                        rules: List[Tuple[str, str]], fallback: str,
-                        selectors: Tuple[str, ...] = ()) -> str:
-    """Compile one section's rules into a nest of switches.
+                        rules: List[TreeNode], fallback: str,
+                        selectors: Tuple[str, ...] = (),
+                        index: int = 0) -> str:
+    """Compile one section's rules into switches, and name the result.
 
-    NewGRF only exposes consist variables as a switch *selector*, never inside a
-    condition, so a rule written as ``consist <= 9=face_s`` cannot become
-    ``switch (..., 1) { num_vehs_in_consist <= 9: ... }``.  Instead the rules
-    are compiled the way China Set: Trains writes them by hand: each distinct
-    variable becomes one selector level, the comparison becomes the case, and
-    the branches are chained by nesting.  ``selectors`` carries the variables
-    already used on the way down.
+    NewGRF only exposes these variables as a switch *selector*, never inside a
+    condition: ``switch (..., 1) { num_vehs_in_consist <= 9: ... }`` is rejected
+    by nmlc.  A rule therefore becomes a switch on its own variable, and a rule
+    on a different variable becomes that switch's default, because a chain of
+    switches is the only way to test two variables in one section.
+
+    ``rules`` is the section's whole chain; the first switch is the entry point.
+    The result is not always a switch, because a section that names no condition
+    at all is just a sprite sheet.
+
+    ``selectors`` holds the variables of the switches *above* this call, so a
+    branch that selects on a variable an ancestor already selected is refused
+    with a useful message instead of compiling into NML nmlc rejects.
     """
     if not rules:
         return fallback
 
-    condition, basename = rules[0]
-    here = _graphics_part_spriteset(vehicle, basename)
-    rest = rules[1:]
+    chain = [node for node in rules if node.selector]
+    if not chain:
+        # no condition anywhere: the section shows one sheet, or stays invisible
+        for root in rules:
+            for node in root.walk():
+                if node.basename:
+                    return _graphics_part_spriteset(vehicle, node.basename)
+        return fallback
 
-    if not condition:
-        # a bare basename is the fallback of this section
-        return here
+    root = chain[0]
+    selector = root.selector
+    branches: List[TreeNode] = []
+    default_target: Optional[str] = None
+    for branch in root.children:
+        if branch.case:
+            branches.append(branch)
+        elif branch.selector_below:
+            # the chain carries on: this switch's default is the next switch
+            default_target = _graphics_branch_target(
+                switches, vehicle, "%s_next" % prefix, branch, fallback,
+                selectors + (selector,), index + len(branches))
+        else:
+            default_target = _graphics_part_spriteset(vehicle, branch.basename)
+    return _graphics_switch(switches, vehicle, prefix, selector, branches,
+                            fallback, default_target, selectors, index)
 
-    selector, case = predicate_selector(condition)
+
+def _graphics_switch(switches: "Emitter", vehicle: Vehicle, prefix: str,
+                     selector: str, branches: List[TreeNode], fallback: str,
+                     default_target: Optional[str], selectors: Tuple[str, ...],
+                     index: int) -> str:
+    """Emit one switch and return its name.
+
+    ``branches`` are the cases that select a value; ``default_target`` is what an
+    unmatched value resolves to, or ``None`` to use the caller's ``fallback``.
+    The switch is emitted even with a single branch, because it is the default
+    that makes the branch conditional -- folding the level away would apply the
+    sprite to every value the condition rejected.
+    """
     if selector in selectors:
         raise GraphicsPartsError(
-            "同一段里重复使用了 %s；请把两条规则合并成一个区间" % selector)
-    name = "switch_%s_s%d" % (prefix, len(selectors))
+            "同一段里重复使用了 %s 作为同一层的选择器；请把同层的分支合成"
+            "一个区间，或换一个变量" % selector)
 
-    following = emit_graphics_rules(switches, vehicle, prefix, rest, fallback,
-                                    selectors + (selector,))
-    switches.switch(name, selector, [(case, "return %s" % here)],
-                    "return %s" % following)
+    cases: List[Tuple[str, str]] = []
+    for position, branch in enumerate(branches):
+        cases.append((branch.case, "return %s"
+                      % _graphics_branch_target(switches, vehicle,
+                                                "%s_%d" % (prefix, position),
+                                                branch, fallback,
+                                                selectors + (selector,),
+                                                index + 1 + position)))
+
+    if not branches and default_target is None:
+        # a switch with no cases and no default selects nothing at all
+        return fallback
+    default = "return %s" % (default_target if default_target is not None
+                             else fallback)
+    name = "switch_%s" % prefix
+    switches.switch(name, selector, cases, default)
     return name
+
+
+def _graphics_branch_node(selector: str, branch: TreeNode) -> TreeNode:
+    """The sub tree of one branch, as a node that can be compiled on its own."""
+    node = TreeNode(selector=selector)
+    node.children = branch.children
+    return node
+
+
+def _graphics_branch_target(switches: "Emitter", vehicle: Vehicle, label: str,
+                            branch: TreeNode, fallback: str,
+                            selectors: Tuple[str, ...], index: int) -> str:
+    """The switch or spriteset one branch of a rule tree resolves to."""
+    if branch.is_leaf:
+        return _graphics_part_spriteset(vehicle, branch.basename)
+    root = _graphics_branch_node(branch.selector_below, branch)
+    return emit_graphics_rules(switches, vehicle, label, [root], fallback,
+                               selectors, index)
 
 
 def _graphics_part_spriteset(vehicle: Vehicle, basename: str) -> str:
     """Spriteset name for one basename named by the ``graphics_parts`` column."""
-    return "spriteset_%s_gfx_%s" % (vehicle.id, basename)
+    return "spriteset_%s_gfx_%s" % (vehicle.id, _identifier_part(basename))
 
 
-def _graphics_part_template(vehicle: Vehicle, basename: str) -> str:
+def _graphics_part_template(vehicle: Vehicle, livery: "Livery", basename: str) -> str:
     """The template a graphics_parts basename is drawn with.
 
-    A livery may name a template per section; when the basename being drawn is
-    one of that livery's own basenames, that livery's first template is used so
+    A scheme may name a template per section; when the basename being drawn is
+    one of that scheme's own basenames, the scheme's first template is used so
     that ``template_speciel_0`` style artwork keeps working.  Anything else
-    falls back to the vehicle's standard template.
+    falls back to the vehicle's first scheme and finally to the standard one.
     """
-    for livery in vehicle.liveries:
-        if _livery_basename(vehicle, livery) == basename and livery.templates:
+    if livery.templates:
+        if _livery_basename(vehicle, livery) == basename:
             return livery.template_for(0, vehicle.part_count)
     if vehicle.liveries and vehicle.liveries[0].templates:
         return vehicle.liveries[0].template_for(0, vehicle.part_count)
@@ -1723,34 +2279,60 @@ def _graphics_part_template(vehicle: Vehicle, basename: str) -> str:
 
 def _emit_graphics_parts(switches: "Emitter", vehicle: Vehicle,
                          livery_roots: Dict[int, str]) -> Optional[str]:
-    """Build ``switch_<id>_graphics`` from the ``graphics_parts`` column.
+    """Build the per scheme graphics dispatch from the livery table.
 
-    Each section gets a chain of switches: the first rule whose condition holds
-    picks the sprite, and a section with no match keeps the normal livery
-    graphics.  With more than one livery the whole dispatch is wrapped in a
-    ``cargo_subtype`` switch so refitting still changes the paint, and the
-    livery the table lists first stays the default.
+    Every paint scheme owns its own ``graphics_parts``: which sprite each
+    section shows depends on the scheme, because different artwork is exactly
+    what distinguishes the schemes.  Each scheme therefore gets its own
+    ``switch_<id>_section_<index>`` chain, and the outer switch selects it by
+    ``cargo_subtype`` so that refitting changes the shape as well as the paint.
+
+    A scheme that names no rules keeps the plain per-section behaviour: only the
+    body section draws the scheme's own sheet, the invisible end sections stay
+    invisible.
+
+    Once a scheme *does* name rules, nothing is assumed on its behalf: a section
+    whose piece is empty stays invisible, and a section whose rules match nothing
+    also stays invisible.  The alternative -- quietly showing the scheme's
+    whole-car sheet on those sections -- would paint the entire model once per
+    section, so ``;emu_body;`` would draw the car three times instead of hiding
+    its ends.
     """
-    if not vehicle.graphics_parts:
-        return None
     vid = vehicle.id
+    liveries = [livery for livery in vehicle.liveries if livery.index in livery_roots]
+    if not liveries:
+        return None
 
-    per_livery: List[Tuple[str, str]] = []
-    for index in sorted(livery_roots):
-        fallback = livery_roots[index]
+    def section_switch(livery: Livery, fallback: str) -> str:
+        if not livery.graphics_parts:
+            # the shape dispatch every vehicle had before the column moved
+            switch = "switch_%s_section_%d" % (vid, livery.index)
+            switches.switch(
+                switch,
+                f"position_in_articulated_veh % {vehicle.part_count}",
+                [(str(vehicle.power_section), fallback)],
+                "empty_sprites;",
+            )
+            return switch
         targets: List[str] = []
-        for position, rules in enumerate(vehicle.graphics_parts):
-            prefix = "%s_%d_%d" % (vid, index, position)
-            targets.append(emit_graphics_rules(switches, vehicle, prefix, rules, fallback))
-        switch = "switch_%s_section_%d" % (vid, index)
+        for position, rules in enumerate(livery.graphics_parts):
+            prefix = "%s_%d_%d" % (vid, livery.index, position)
+            targets.append(emit_graphics_rules(switches, vehicle, prefix, rules,
+                                               "empty_sprites"))
+        switch = "switch_%s_section_%d" % (vid, livery.index)
         switches.switch(switch,
                         f"position_in_articulated_veh % {vehicle.part_count}",
                         [(str(position), target)
                          for position, target in enumerate(targets)],
                         "empty_sprites;")
-        per_livery.append((str(index), switch))
+        return switch
 
-    if len(per_livery) == 1:
+    per_livery: List[Tuple[str, str]] = [
+        (str(livery.index), section_switch(livery, livery_roots[livery.index]))
+        for livery in liveries
+    ]
+
+    if len(per_livery) == 1 and not vehicle.year_dependent:
         return per_livery[0][1]
     switch = "switch_%s_graphics" % vid
     switches.switch(switch, "cargo_subtype", per_livery, per_livery[0][1])
@@ -1883,6 +2465,7 @@ def render_vehicle_file(vehicle: Vehicle) -> str:
     # callbacks that belong to this vehicle only
     emit_livery_callbacks(switches, [vehicle])
     emit_articulated_callbacks(switches, [vehicle])
+    emit_length_switch(switches, vehicle)
 
     emit_vehicle(sprites, switches, items, vehicle)
 
@@ -2041,13 +2624,15 @@ STATIC_STRINGS: List[Tuple[str, str, str]] = [
      "This GRF needs dynamic_engines to be turned on. Open console, and type "
      "\"set dynamic_engines 1\".",
      "请切换至控制台模式，键入 \"set dynamic_engines 1\"， 否则您无法游玩本附加包。"),
-    # menu / livery helper strings
-    ("STR_BUILD_YEAR", "Livery of the build year", "建造年份对应涂装"),
-    ("STR_ORIGINAL", "Original", "原始涂装"),
-    ("STR_EXPORT_BLUE", "Export blue", "出口蓝"),
-    ("STR_EXPORT_GREEN", "Export olive green", "出口橄榄绿"),
-    ("STR_EXPORT_GRAY", "Light grey", "浅灰"),
-    ("STR_DPRK_LIVERY", "DPRK scheme", "朝鲜涂装"),
+    # livery labels.  The table writes them as LV_<NAME>, this list holds the
+    # NML constants they map to, so every paint scheme label sits together in
+    # docs/str.csv instead of being mixed into the interface strings.
+    ("STR_LV_BUILD_YEAR", "Livery of the build year", "建造年份对应涂装"),
+    ("STR_LV_ORIGINAL", "Original", "原始涂装"),
+    ("STR_LV_EXPORT_BLUE", "Export blue", "出口蓝"),
+    ("STR_LV_EXPORT_GREEN", "Export olive green", "出口橄榄绿"),
+    ("STR_LV_EXPORT_GRAY", "Light grey", "浅灰"),
+    ("STR_LV_DPRK", "DPRK scheme", "朝鲜涂装"),
     ("STR_UKRAINE_LIVERY", "Ukraine scheme", "乌克兰涂装"),
     ("STR_LIVERY_EXPORT", "Export livery: {STRING}", "出口涂装：{STRING}"),
     ("STR_EXPORT_SERIES", "Export series", "出口系列"),
@@ -2109,7 +2694,7 @@ def build_additional_text(vehicle: "Vehicle") -> str:
 
     Returns e.g.
         STR_DESC_EXPORT, string(STR_FULL_NAME_SS8EX),
-        string(STR_LIVERY_EXPORT, string(STR_EXPORT_BLUE)), string(STR_CAT_LOCO)
+        string(STR_LIVERY_EXPORT, string(STR_LV_EXPORT_BLUE)), string(STR_CAT_LOCO)
 
     render_item() adds the surrounding string(...), so every producer of this
     field -- the tables and this function alike -- yields bare arguments.
@@ -2118,12 +2703,11 @@ def build_additional_text(vehicle: "Vehicle") -> str:
     """
     parts = ["STR_DESC_EXPORT", "string(%s)" % vehicle.full_name_constant]
 
-    schemes = [livery.string for livery in vehicle.liveries
-               if livery.string and livery.string.startswith("STR_")]
+    schemes = [livery.string for livery in vehicle.liveries if livery.string]
     if len(schemes) > 1:
         schemes = schemes[1:]          # index 0 is the automatic choice
     if not schemes:
-        schemes = ["STR_ORIGINAL"]
+        schemes = ["STR_LV_ORIGINAL"]
     parts.append("string(STR_LIVERY_EXPORT, %s)"
                  % ", ".join("string(%s)" % s for s in schemes))
     parts.append("string(%s)" % CATEGORY_DESCRIPTION.get(vehicle.category, "STR_CAT_LOCO"))
@@ -2148,31 +2732,80 @@ def collect_strings(vehicles: Sequence[Vehicle]) -> List[Tuple[str, str, str]]:
             add(vehicle.full_name_constant, plain_name, "")
         for livery in vehicle.liveries:
             if livery.string and livery.string.startswith("STR_"):
-                # labels such as STR_EXPORT_BLUE are already in STATIC_STRINGS
+                # a livery label is written by hand in docs/str.csv: the ones
+                # this generator knows are already in STATIC_STRINGS, and a new
+                # LV_<NAME> is added to the table by the workbench, where its
+                # text is editable
                 known.add(livery.string)
     return result
 
 
+# docs/str.csv is a three column CSV whose second column is headed ENGLISHand
+# whose first data column holds STR_ constants.  The header line has to be
+# recognised wherever the file is read: ``STRING`` happens to match
+# ``STR_[A-Z0-9_]+``, so a header treated as data becomes a phantom string that
+# ``--check`` reports as unused and ``--strings`` then keeps for ever.
+LANG_HEADER = ("STRING", "ENGLISH")
+
+
+def is_lang_header(row: Sequence[str]) -> bool:
+    """Is this CSV record the language table's header line?"""
+    if len(row) < 2:
+        return False
+    return (row[0].strip().lstrip("\ufeff") == LANG_HEADER[0]
+            and row[1].strip() == LANG_HEADER[1])
+
+
 def render_strings(vehicles: Sequence[Vehicle], path: str) -> None:
-    """Write docs/str.csv, preserving translations from an existing file."""
+    """Write docs/str.csv, preserving translations from an existing file.
+
+    Two kinds of row survive a re-run: the third column of a row this function
+    generates, and any whole row the generator does not know about.  The second
+    kind is what makes hand written labels usable -- a livery points at a
+    string constant, so a constant that is not in ``STATIC_STRINGS`` and not
+    derived from a vehicle must be addable by hand without the next
+    ``make gen`` deleting it again.
+    """
     translations: Dict[str, str] = {}
+    extra: List[Tuple[str, str, str]] = []
+    seen = set()
     if os.path.exists(path):
-        with open(path, "r", encoding="utf-8") as handle:
+        with open(path, "r", encoding="utf-8-sig") as handle:
             for row in csv.reader(handle):
-                if len(row) >= 3 and row[0].strip() and not row[0].strip().startswith("#"):
-                    if row[2].strip():
-                        translations[row[0].strip()] = row[2].strip()
+                if not row or not row[0].strip() or row[0].strip().startswith("#"):
+                    continue
+                if is_lang_header(row):
+                    continue
+                constant = row[0].strip().lstrip("\ufeff")
+                english = row[1].strip() if len(row) > 1 else ""
+                chinese = row[2].strip() if len(row) > 2 else ""
+                if chinese:
+                    translations[constant] = chinese
+                if constant not in seen:
+                    seen.add(constant)
+                    extra.append((constant, english, chinese))
 
     rows = collect_strings(vehicles)
+    generated = {constant for constant, _, _ in rows}
+    # a hand written row keeps the text it was written with; anything that is
+    # not an STR_ constant (including the header line this file writes itself)
+    # is not a string and must never be carried over
+    extra = [(constant, english, chinese) for constant, english, chinese in extra
+             if constant not in generated and (english or chinese)
+             and re.fullmatch(r"STR_[A-Z0-9_]+", constant)]
+
     ensure_dir(os.path.dirname(path))
     with open(path, "w", encoding="utf-8", newline="\n") as handle:
         handle.write("# STRING,ENGLISH,SIMPLIFIED CHINESE\n")
-        handle.write("# Generated by genpnml.py --strings; translations in the third\n")
-        handle.write("# column are preserved when it is re-run.\n")
+        handle.write("# Generated by genpnml.py --strings; the third column of a\n")
+        handle.write("# generated row and every hand written row are preserved.\n")
         writer = csv.writer(handle, lineterminator="\n")
         for constant, english, chinese in rows:
             writer.writerow([constant, english, translations.get(constant, chinese)])
-    print("genpnml: wrote %d strings to %s" % (len(rows), path))
+        for constant, english, chinese in extra:
+            writer.writerow([constant, english, chinese])
+    print("genpnml: wrote %d strings to %s (%d generated, %d hand written)"
+          % (len(rows) + len(extra), path, len(rows), len(extra)))
 
 
 def load_string_table(path: str) -> Dict[str, str]:
@@ -2180,10 +2813,15 @@ def load_string_table(path: str) -> Dict[str, str]:
     table: Dict[str, str] = {}
     if not os.path.exists(path):
         return table
-    with open(path, "r", encoding="utf-8") as handle:
+    with open(path, "r", encoding="utf-8-sig") as handle:
         for row in csv.reader(handle):
-            if len(row) >= 2 and row[0].strip() and not row[0].strip().startswith("#"):
-                table[row[0].strip()] = row[1].strip()
+            if not row or not row[0].strip() or row[0].lstrip().startswith("#"):
+                continue
+            if is_lang_header(row):
+                continue
+            constant = row[0].strip().lstrip("\ufeff")
+            if re.fullmatch(r"STR_[A-Z0-9_]+", constant):
+                table[constant] = row[1].strip() if len(row) > 1 else ""
     return table
 
 
@@ -2239,14 +2877,19 @@ def check_strings(vehicles: Sequence[Vehicle], path: str) -> int:
 NML_STRING_RE = re.compile(r'^(?:STR_[A-Z0-9_]+|"[^"]*"|\{[^}]*\})$')
 
 
-def validate_vehicles(vehicles: Sequence[Vehicle]) -> List[str]:
+def validate_vehicles(vehicles: Sequence[Vehicle]):
     """Cheap sanity checks that keep malformed tables out of the compiler.
 
     A name that is neither an STR_ constant nor a quoted literal would be
     pasted into string(...) verbatim, which produces a confusing NML syntax
     error much later; catching it here names the offending row instead.
+
+    Returns ``(problems, warnings)``.  A problem stops the build; a warning is
+    printed and the build continues, because it describes something legal that
+    is probably not what was meant.
     """
     problems: List[str] = []
+    warnings: List[str] = []
     for vehicle in vehicles:
         raw = (vehicle.name_string or "").strip()
         if raw.startswith("STR_") or raw.startswith('"'):
@@ -2261,10 +2904,40 @@ def validate_vehicles(vehicles: Sequence[Vehicle]) -> List[str]:
             problems.append(
                 "%s: id must be lower case letters, digits and underscores only"
                 % vehicle.id)
-        if vehicle.folder.startswith(("/", "\\")) or ".." in vehicle.folder:
-            problems.append("%s: folder %r is not a relative path"
-                            % (vehicle.id, vehicle.folder))
-    return problems
+        if not re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9_./-]*", vehicle.folder) \
+                or "/../" in "/%s/" % vehicle.folder or vehicle.folder.count("/") > 3:
+            problems.append(
+                "%s: folder %r must be a relative path of at most four segments, "
+                "each made of letters, digits, '_', '.' and '-', separated by '/'"
+                % (vehicle.id, vehicle.folder))
+        # Multiples of three sections are the convention this set follows: a car
+        # is an invisible end, a body that carries the cargo, and another
+        # invisible end, so a longer unit is always short+body+short repeated.
+        # It is a rule about the artwork, not about NewGRF -- position_in_
+        # articulated_veh % N works for any N -- so it is stated as a warning and
+        # does not block a build.
+        sections = vehicle.part_count
+        if sections % 3:
+            warnings.append(
+                "%s: parts 有 %d 段，不是 3 的倍数；本包的习惯是"
+                "「隐形头 + 载货车身 + 隐形尾」，一组三节，"
+                "例如 2|8|2 或 2|8|2|2|8|2" % (vehicle.id, sections))
+        # graphics_parts lives in the livery table now, so a malformed cell has
+        # to name the scheme it came from: the vehicle alone is not enough.  The
+        # parsing itself has already happened by the time this runs, so what is
+        # checked here is the shape of the tree rather than its text.
+        for livery in vehicle.liveries:
+            for position, roots in enumerate(livery.graphics_parts):
+                for root in roots:
+                    for node in root.walk():
+                        if node.basename and not BASENAME_RE.fullmatch(node.basename):
+                            problems.append(
+                                "%s 涂装 #%d（%s）第 %d 段：贴图基名 %r 只能用小写"
+                                "字母、数字和下划线"
+                                % (vehicle.id, livery.index,
+                                   livery.suffix or _livery_basename(vehicle, livery),
+                                   position + 1, node.basename))
+    return problems, warnings
 
 
 def remove_generated(out_dir: str) -> int:
@@ -2373,7 +3046,7 @@ def write_generated(out_dir: str, files: Dict[str, str]) -> Tuple[int, int]:
     return len(files), removed
 
 
-def generate(data_dir: str, out_dir: str, index_file: str, with_vox: bool,
+def generate(data_dir: str, out_dir: str, index_file: str,
              vox_root: str, gfx_root: str, sprite_manifest: str = "") -> int:
     vehicles = load_vehicles(data_dir)
 
@@ -2389,8 +3062,7 @@ def generate(data_dir: str, out_dir: str, index_file: str, with_vox: bool,
         # The local web workbench needs to know which sprite basenames every
         # row requires; collect_sprite_basenames() is the only authority on
         # that, so publish its answer instead of duplicating the rules.
-        wanted = {vehicle.id: sorted({basename for basename, _colour
-                                      in collect_sprite_basenames(vehicle)})
+        wanted = {vehicle.id: sorted(collect_sprite_basenames(vehicle))
                   for vehicle in vehicles}
         ensure_dir(os.path.dirname(sprite_manifest) or ".")
         with open(sprite_manifest, "w", encoding="utf-8", newline="\n") as handle:
@@ -2423,32 +3095,42 @@ def generate(data_dir: str, out_dir: str, index_file: str, with_vox: bool,
     if not os.path.exists(fallback32):
         write_png(fallback32, 2, 2, (0, 0, 0, 0))
 
-    # gorender/renderobject reads the manifest and the palette from the folder
-    # the .vox file lives in, so every folder needs its own copy.  With no
-    # vehicles there is nothing to prepare, and creating empty folders would
-    # only litter the gfx collection before the first real model exists.
-    source_palette = os.path.join(gfx_root, "ttd_palette.json")
-    vox_written = 0
-    if with_vox and vehicles:
-        folders = sorted({vehicle.folder for vehicle in vehicles})
-        for folder in folders:
+    # A multi level folder may not exist yet, and gorender/renderobject reads the
+    # manifest and the palette from the folder each .vox lives in, so prepare
+    # them.  The .vox files themselves are the author's artwork: the generator
+    # does not create models, because a placeholder would be a file you have to
+    # notice and delete before your own model could be trusted.
+    prepared = 0
+    if vehicles:
+        source_palette = os.path.join(gfx_root, "ttd_palette.json")
+        for folder in sorted({vehicle.folder for vehicle in vehicles}):
             directory = os.path.join(vox_root, folder)
             ensure_dir(directory)
             write_manifest(os.path.join(directory, "manifest.json"))
             if os.path.exists(source_palette):
-                shutil.copyfile(source_palette,
-                                os.path.join(directory, "ttd_palette.json"))
-        for vehicle in vehicles:
-            directory = os.path.join(vox_root, vehicle.folder)
-            for basename, colour in collect_sprite_basenames(vehicle):
-                size, voxels = build_placeholder_vox(vehicle, colour)
-                write_vox(os.path.join(directory, "%s.vox" % basename), size, voxels)
-                vox_written += 1
+                # copied as text with LF endings, so that a Windows checkout's
+                # CRLF does not show the file as modified for ever
+                with open(source_palette, "r", encoding="utf-8") as handle:
+                    palette_text = handle.read()
+                with open(os.path.join(directory, "ttd_palette.json"), "w",
+                          encoding="utf-8", newline="\n") as handle:
+                    handle.write(palette_text)
+            prepared += 1
 
     render_include(index_file, vehicles)
 
-    print("genpnml: %d vehicles -> %d files (%d removed), %d voxel models"
-          % (len(vehicles), written, removed, vox_written))
+    print("genpnml: %d vehicles -> %d files (%d removed), %d gfx folder(s) prepared"
+          % (len(vehicles), written, removed, prepared))
+    missing = []
+    for vehicle in vehicles:
+        directory = os.path.join(vox_root, vehicle.folder)
+        for basename in collect_sprite_basenames(vehicle):
+            if not os.path.exists(os.path.join(directory, "%s.vox" % basename)):
+                missing.append("gfx/%s/%s.vox" % (vehicle.folder, basename))
+    if missing:
+        print("genpnml: %d model(s) still to be drawn:" % len(missing))
+        for path in missing:
+            print("  %s" % path)
     for category in BAND_ORDER:
         group = [v for v in vehicles if v.category == category]
         if group:
@@ -2464,9 +3146,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     parser.add_argument("--out", default="src", help="directory for generated PNML")
     parser.add_argument("--index", default="chinasettrainsexport.pnml",
                         help="index PNML file whose generated include block is refreshed")
-    parser.add_argument("--vox", action="store_true",
-                        help="also write placeholder voxel models")
-    parser.add_argument("--vox-root", default="gfx", help="root for generated .vox models")
+    parser.add_argument("--vox-root", default="gfx", help="root for the .vox models")
     parser.add_argument("--gfx", default="gfx", help="root for shared gfx files")
     parser.add_argument("--clean", action="store_true",
                         help="only remove the generated files")
@@ -2494,7 +3174,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         print("genpnml: removed %d generated files" % removed)
         return 0
 
-    return generate(args.data, args.out, args.index, args.vox, args.vox_root,
+    return generate(args.data, args.out, args.index, args.vox_root,
                     args.gfx, args.sprite_manifest)
 
 

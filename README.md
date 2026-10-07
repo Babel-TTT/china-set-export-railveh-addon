@@ -112,7 +112,7 @@ Vehicles are **data**, not code.  To add one:
    ```bash
    python3 tools/vehicle_row.py add data/locomotives.csv \
        id=ckd4a name_string="CKD4A (Export)" category=diesel folder=diesel \
-       model=single parts=4 power_section=0 intro_year=1993 track_type=BACN \
+       "parts=2|8|2" power_section=1 intro_year=1993 track_type=BACN \
        speed=100 power=1000 power_unit=kW weight=92 \
        tractive_effort_coefficient=0.25 cost_factor=45 running_cost_factor=40 \
        capacity=1 ac_supply=1
@@ -127,9 +127,9 @@ Vehicles are **data**, not code.  To add one:
 3. run `make gen` — the ID, the switch chains, the spritesets, the menu order
    and the language strings are all derived automatically,
 4. drop the model into `gfx/<folder>/<id>.vox`; if the vehicle has liveries or
-   cargo variants, one `.vox` per sprite basename is needed.  `make gen`
-   already writes a placeholder model for each of them, so the project builds
-   before any artwork exists.
+   cargo variants, one `.vox` per sprite basename is needed.  `make gen` prints
+   which models are still to be drawn, and `tools/verify_assets.py` lists them
+   again; the generator does not create models itself.
 
 `make gen` creates `gfx/<folder>/manifest.json` and `ttd_palette.json` the
 first time a vehicle needs them, so a new folder needs no manual setup.

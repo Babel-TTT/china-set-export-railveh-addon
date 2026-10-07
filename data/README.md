@@ -13,7 +13,7 @@ edited by hand.
 > that defines the parameters, railtypes and cargotypes but no vehicles.
 
 ```
-python3 genpnml.py --data data --out src --vox   # write the PNML and placeholder models
+python3 genpnml.py --data data --out src           # write the PNML
 python3 genpnml.py --strings                     # refresh docs/str.csv
 python3 genpnml.py --check                       # verify the string table
 python3 genpnml.py --clean                       # remove the generated PNML
@@ -29,12 +29,18 @@ python3 tools/clear_vehicle_data.py [--apply]                      # empty all t
 `tools/vehicle_row.py` is the safe way to edit these files: it writes through
 the csv module, so a value containing a comma can never shift the following
 columns.  `tools/clear_vehicle_data.py` empties every table and deletes the
-placeholder models, which is how the current empty state was produced.
+voxel models, which is how the current empty state was produced.
 
 `#` starts a comment.  A comment may appear anywhere, including between data
 rows.  List valued cells use `|` as the separator so that the CSV stays
 readable, for example `bitmask(CC_BULK|CC_COVERED)` and `[PASS|TOUR]`; a comma
 works too but then the cell has to be quoted.
+
+**Keep comment lines free of double quotes**, or use them in pairs on one line.
+The tables are read with Python's csv module, which tracks quoting across lines:
+one unbalanced `"` in a comment swallows the following lines into a single
+record, and the vehicle row after it silently disappears from the workbench and
+from `genpnml.py`.
 
 ### Yes/no flags
 
@@ -72,10 +78,9 @@ The flag columns (`ac_supply`, `airconditioned`, `restaurant`, `mu`,
 | `id` | NML identifier **and** sprite basename.  Lower case, `[a-z0-9_]`, unique. |
 | `name_string` | the name shown in the depot.  A plain name such as `CKD4A (Export)` is mapped onto `STR_NAME_<ID>` by the generator, so the translation lives in `docs/str.csv`. |
 | `category` | which ID band and engine class to use.  One of `steam`, `diesel`, `electric`, `multipower`, `1500v_dc`, `dmu`, `emu`, `1500_emu`, `750_emu`, `third_emu`, `multi_mu`, `mono_mu`, `mglv_mu`, `cargo_dmu`, `cargo_emu`, `multi_cargo_mu`.  Ignored in `coaches.csv`, `wagons.csv` and `unit_wagons.csv`, where it is implied. |
-| `folder` | sub folder of `gfx/` holding the model, and the first argument of the sprite templates. |
-| `parts` | the three section lengths, `\|` separated: `<short>\|<body>\|<short>`, normally `2\|8\|2`.  The two short sections exist only to make the vehicle fit the track; the middle one carries the body sprite, the power and the load. |
-| `power_section` | index of the section that carries the body sprite, the power and the capacity.  `1` for the standard three section layout. |
-| `graphics_parts` | optional per section sprite rules; see [per section graphics](#per-section-graphics).  Leave empty and only the body section draws, the ends stay invisible. |
+| `folder` | sub folder of `gfx/` holding the model, and the first argument of the sprite templates.  May be a nested path of up to four segments (`export/dprk/df4c`).  See [sprite files](#sprite-files). |
+| `parts` | the section lengths, `\|` separated: `<short>\|<body>\|<short>`, normally `2\|8\|2`.  The **number of values is the number of sections** the vehicle has, and one value is a plain non-articulated vehicle.  The unit is 4 px, so `8` is about 32 px long.  The short sections at the ends exist to make the vehicle fit the track; the body section carries the sprite and the load.  The count is **normally a multiple of three** — invisible head, cargo body, invisible tail — so a longer unit repeats that group (`2\|8\|2\|2\|8\|2`).  A count that is not a multiple of three is reported as a **warning** and still generates and compiles: `position_in_articulated_veh % N` works for any N, so this is a convention about the artwork (and what `min_cars` and the shared `switch_length_2_<body>_2` switch assume), **not a NewGRF requirement**. |
+| `power_section` | index of the **body** section: the one that carries the load, draws the body sprite when a scheme names no per section rules, and shows the head end power effect.  `1` for the standard three section layout.  The column keeps its historical name; **power and weight are whole vehicle properties and are not distributed across sections** — see [capacity and sections](#capacity-and-sections). |
 | `intro_year`, `intro_month`, `intro_day` | introduction date. |
 | `model_life` | `VEHICLE_NEVER_EXPIRES` or a number of years. |
 | `retire_early` | years of early retirement, or empty. |
@@ -158,28 +163,49 @@ This is the pattern China Set: Trains and JPengines both use, for example
 * With `capacity_by_cargo` the section switch falls back to a
   `cargo_type_in_veh` switch, so the load follows the cargo.  Cargos that are
   not listed use `capacity`.
-* Single section stock (`model=single`) gets the callback too, with
-  `position_in_articulated_veh % 1`.
+
+**Power and weight are not distributed.**  Both are plain properties, shared by
+the whole vehicle including every articulated section, so the generator writes a
+single `power: 2165 kW;` and `weight: 92 ton;` with no switch involved.  This is
+what the parent set does too.  Only `cargo_capacity` is read per section by
+OpenTTD, which is why it is the only value that needs the callback above.
 
 ## Per section graphics
 
-Every vehicle is three sections, so the two short ends are normally invisible
-and only `power_section` draws.  `graphics_parts` lets a section pick its sprite
-from **where the car sits in the whole train**, which is how a real EMU set is
-built: the cab cars at either end, the pantograph car in the middle, and so on.
+A vehicle is normally three sections (`2|8|2`), so the two short ends are
+normally invisible and only the body section (`power_section`) draws.
+`graphics_parts` lets a section pick its sprite from **where the car sits in the
+whole train**, which is how a real EMU set is built: the cab cars at either end,
+the pantograph car in the middle, and so on.
 
-The cell is split into one piece per section with `;`, and each piece into rules
-with `|`.  A rule is either `condition=basename` or a bare `basename`, which is
-the fallback used when no condition matched.  Rules are tried in order, so the
-bare basename belongs last.
+**`graphics_parts` lives in `liveries.csv`**, one cell per paint scheme.  The
+artwork that depends on the train's shape is exactly the artwork that differs
+between schemes -- an export blue unit and a grey unit want different cab
+faces -- so each scheme decides for itself.  A scheme whose cell is empty keeps
+the plain behaviour: the body section draws the scheme's own sheet and the ends
+stay invisible.
+
+### The cell: one piece per section
+
+The cell is split into **one piece per section** with `;`, so a three section
+vehicle needs exactly three pieces.  A trailing `;` is a real fourth piece, not
+punctuation, and is refused:
 
 ```
-graphics_parts=consist <= 9=emu_face_s | emu_face_l;emu_body;consist <= 9=emu_face_s | emu_face_l
+consist<=6=emu_face_s | emu_face_l ; emu_body ;
 ```
 
-That reads: the front and rear sections show the small face on a train of up to
-nine parts and the large one otherwise, and the middle section is always the
-body.
+Those three pieces are section 1's rules, section 2's sheet, and an **empty
+piece**, which leaves section 3 invisible (`empty_sprites`).  Only an entirely
+empty cell takes the no-rules path above, where the body section falls back to the
+scheme's own sheet.
+
+Each piece is split on `|` into **rules**, and a rule is a *path*: one or more
+conditions joined with `=`, then the sprite sheet basename, for example
+`consist<=6=pos<=2=h_s`.  A condition itself contains `=` (`<=`, `==`), so the
+parser walks the path from the left, cuts off the longest valid condition each
+time, and what is left has to be a basename of `[a-z0-9_]+`.  A rule that is
+nothing but conditions, with no basename, is refused.
 
 | variable | means |
 | -------- | ----- |
@@ -188,29 +214,89 @@ body.
 | `consist` | `num_vehs_in_consist` — how many parts the whole train has |
 | `unitpos` | `position_in_articulated_veh` — which section of *this* car it is |
 
-Each condition must be a simple comparison of one variable with a number:
-`consist <= 9`, `pos == 0`, `tailpos >= 3`, `unitpos == 1`.  Operators are
-`==`, `<`, `<=`, `>`, `>=`.
+Both spellings work: the short name above is a convenience alias for the NML
+variable next to it (`pos<=2` and `position_in_consist <= 2` are the same
+condition), and spaces around the operator are optional.
+
+Each condition must be a simple comparison of one variable with an unsigned
+number: `consist <= 6`, `pos == 0`, `tailpos >= 3`, `unitpos == 1`.  Operators are
+`==`, `<`, `<=`, `>`, `>=`.  `!=` and `!` are refused, as is a `&` inside one
+condition, an unknown variable, an upper case variable name and arithmetic such as
+`pos / 3 == 1` -- use `pos == 3` or rearrange the rules instead.  `unitpos` is
+legal, but the section switch already selects on
+`position_in_articulated_veh % <sections>`, and which section a rule belongs to is
+written by its position in the cell, so a condition on it is usually redundant.
+
+### Rules become nested switches
+
+Rules are read in the order they are written and merged into one switch tree per
+section:
+
+* several rules on **one variable** are several cases of one switch, tried top to
+  bottom: `pos<=2=a | pos>2=b` is one switch with the cases `0..2` and `3..255`;
+* a rule on a **different variable** becomes the `default` of the switch before
+  it, so the chain continues one level down:
+  `pos<=2=set_head | tailpos<=2=set_tail | set_mid` is two switches in series;
+* a rule that **stops part way down** is the default of the level where it
+  stopped: `consist<=6=pos<=2=h_s | consist<=6=h_l | b_l` reads "on a train of up
+  to six parts the parts with `pos<=2` show `h_s` and the rest `h_l`; any other
+  consist length shows `b_l`";
+* a **bare basename** (no condition at all) is the section's catch-all: it is the
+  default of the deepest switch.
+
+A variable may be selected on **at most once along one path**: once a switch has
+branched on `pos`, a deeper condition on `pos` could never say anything new, so
+the parser refuses it
+(`第 N 段里重复使用了 <variable>；同一条路径上的每个条件要换一个变量`).  Two
+rules naming one condition with **different** sheets are refused
+(`同时指定了模型 … 一个截面上只有一个模型`), because one value cannot show two
+sheets, and a case an earlier sibling **fully covers** is refused too
+(`被前面的条件完全覆盖，永远不会生效`) -- write the narrower range first.  A
+switch is emitted even with a single case, because its default is what makes the
+case conditional; only a section that names no condition at all is just a
+spriteset.
+
+A section shows a sheet only where a rule says so: an empty piece, and a value no
+rule matches, are both `empty_sprites`.
 
 **Why the conditions are so plain.**  NewGRF only exposes these variables as the
 *selector* of a switch, never inside a condition.  Writing
-`switch (..., 1) { num_vehs_in_consist <= 9: ... }` makes nmlc stop with
-`Unrecognized identifier`.  The generator therefore compiles each distinct
-variable into one selector level and nests them, exactly the way China Set:
-Trains writes its EMUs by hand:
+`switch (..., 1) { num_vehs_in_consist <= 6: ... }` makes nmlc stop with
+`Unrecognized identifier`, and a switch can only select on one variable, so each
+condition becomes one selector level and the levels nest, exactly the way China
+Set: Trains writes its EMUs by hand:
 
 ```
-switch (FEAT_TRAINS, SELF, switch_<id>_..._s0, num_vehs_in_consist) {
-    0..9: return spriteset_<id>_gfx_emu_face_s;
-    return spriteset_<id>_gfx_emu_face_l;     // the next rule
+switch (FEAT_TRAINS, SELF, switch_<id>_<scheme>_<section>, num_vehs_in_consist) {
+    0..6: return switch_<id>_<scheme>_<section>_0;   // consist<=6=pos<=2=h_s
+    return spriteset_<id>_gfx_b_l;                   // the bare basename
+}
+switch (FEAT_TRAINS, SELF, switch_<id>_<scheme>_<section>_0, position_in_consist) {
+    0..2: return spriteset_<id>_gfx_h_s;
+    return spriteset_<id>_gfx_h_l;                   // consist<=6=h_l
 }
 ```
 
-So an arithmetic condition such as `pos / 3 == 1` is refused with an explanation
-instead of producing code nmlc rejects.  Use `pos == 3` or rearrange the rules.
+The scheme index is part of every switch name, so two schemes of one vehicle
+cannot collide:
 
-Every basename named here gets a placeholder `.vox` like any other, so the
-project keeps building before the artwork exists.
+```
+switch_<id>_graphics                cargo_subtype   ->  one case per scheme
+switch_<id>_section_<scheme>        position_in_articulated_veh % <sections>
+switch_<id>_<scheme>_<section>      the section's first condition
+switch_<id>_<scheme>_<section>_<n>  a nested condition
+switch_<id>_<scheme>_<section>_next the chain continuing on another variable
+```
+
+Two schemes may share a section graphic by naming the same basename; the
+spriteset is then declared once.  Naming the same basename with different
+`templates` is refused, because one file cannot be drawn two ways.
+
+Every basename named here needs a model of its own, exactly like any other
+sprite; the generator reports the ones that do not exist yet.
+`tools/check_graphics_parts.py` generates and compiles a spread of accepted cells
+with nmlc, and checks that each refused cell produces the message that explains
+why.
 
 ## Multiple unit train length
 
@@ -250,15 +336,59 @@ switch (FEAT_TRAINS, SELF, switch_<id>_start_stop, num_vehs_in_consist < 6) {
 | ------ | ------- |
 | `id` | vehicle the scheme belongs to. |
 | `sprite_suffix` | appended to the sprite basename: suffix `green` means the model is `gfx/<folder>/<id>-green.vox`.  Empty means the plain `<id>` model. |
-| `string` | the label in the refit menu, e.g. `STR_EXPORT_BLUE` (add it to `docs/str.csv`). |
+| `string` | the label in the refit menu, written `LV_<NAME>`.  The generator maps it onto the NML constant `STR_LV_<NAME>`, so the label is `LV_EXPORT_BLUE` and `docs/str.csv` holds `STR_LV_EXPORT_BLUE`.  A bare `STR_<NAME>` cell is still accepted. |
 | `from_year`, `to_year` | the build years during which this scheme was delivered.  `0` and `9999` mean "always". |
 | `purchase_suffix` | optional separate basename suffix for the depot sprite. |
 | `templates` | optional `\|` separated list of template names, one per section. |
+| `graphics_parts` | this scheme's per section sprite rules; see [per section graphics](#per-section-graphics).  Empty means only the body section draws and the ends stay invisible. |
 
 The **row order matters**: the first row for an `id` is index 0, the automatic
 choice, and the rest are indices the player can select.  If any scheme carries
 a real year range the automatic choice switches on `build_year`, and the
 earliest scheme becomes the default.
+
+**The label, not the file name, is what identifies a scheme to the player.**  The
+refit menu is generated per vehicle and each entry's text comes from that row's
+`string`, so two schemes of one vehicle sharing a label are listed as two
+identical entries and cannot be told apart — the only thing distinguishing them
+is then a sprite file name, which is the coupling `LV_` labels exist to replace.
+Give each scheme of a vehicle its own `LV_<NAME>`.  Sharing a label across
+*different* vehicles is fine, because each vehicle has its own menu.
+
+Reusing a label within one vehicle is reported as a **warning**, not an error:
+delivering one scheme with several models is legitimate, it just has to be said
+out loud.  The workbench badges such rows and the string table counts how many
+rows use each label.
+
+Two rows of one `id` may **not** resolve to the same basename: the generator
+would declare the same sprite sheet twice.  Overlapping year ranges compile
+(nmlc picks the earliest matching case) but are reported as a warning, because
+the earlier row silently wins inside the overlap.
+
+Because all four identifying cells are editable, the workbench addresses a
+livery row by its position in this table rather than by its contents, and its
+「涂装管理」 tier shows each row's resolved basename next to the suffix.  See
+[web/workbench/README.md](../web/workbench/README.md).
+
+### Livery labels and the string table
+
+A livery label is deliberately kept out of the `STR_` crowd: writing
+`LV_EXPORT_BLUE` in this table produces `STR_LV_EXPORT_BLUE` in
+`docs/str.csv`, so every paint scheme label sorts together and the workbench's
+string table can filter for exactly that family.
+
+`docs/str.csv` ships six of them (`STR_LV_ORIGINAL`, `STR_LV_BUILD_YEAR`,
+`STR_LV_EXPORT_BLUE`, `STR_LV_EXPORT_GREEN`, `STR_LV_EXPORT_GRAY`,
+`STR_LV_DPRK`).  Any other `LV_<NAME>` has to be added to the table, either by
+the workbench's 字符串表 page or by appending a row by hand; `make gen` keeps
+hand written rows.  `genpnml.py --check` reports a label that is missing.
+
+A project written before the convention existed can be converted with:
+
+```bash
+python3 tools/migrate_lv_labels.py --dry-run
+python3 tools/migrate_lv_labels.py
+```
 
 ## `cargo_variants.csv`
 
@@ -286,13 +416,78 @@ and both chains are independent.
 
 ## Sprite files
 
-For every basename the generator records (`<id>`, `<id>-<livery>`,
-`<variant>-<livery>`, …) a file `gfx/<folder>/<basename>.vox` is needed.
-`genpnml.py --vox` writes a coloured placeholder for each of them, so a new row
-builds immediately; replacing a `.vox` with real artwork is all that is left to
-do.  `renderobject` turns `<basename>.vox` into `<basename>_32bpp.png`, which is
-the file the PNML references.
+For every basename your rows name (`<id>-<livery>`, `<variant>-<livery>`, the
+basenames in a scheme's `graphics_parts`, …) you need a model
+`gfx/<folder>/<basename>.vox`.  **The generator does not create models** — it
+prepares each folder and then prints which models are still to be drawn:
+
+```
+genpnml: 1 vehicles -> 4 files (0 removed), 1 gfx folder(s) prepared
+genpnml: 1 model(s) still to be drawn:
+  gfx/dprk/df4c/df4c-korea-2.vox
+```
+
+`renderobject` (through `make sprites`) turns `<basename>.vox` into
+`<basename>_32bpp.png`, which is the file the PNML references, so a model has to
+exist before the project can compile.  `tools/verify_assets.py` lists the
+missing ones the same way.
+
+A vehicle whose schemes all carry a suffix does **not** need a plain `<id>.vox`:
+that file is only the spriteset a scheme with an empty suffix uses.
 
 Each `gfx/<folder>/` needs its own `manifest.json` and `ttd_palette.json`,
-because that is where the renderer looks for them.  `genpnml.py --vox` writes
-both.
+because that is where the renderer looks for them.  The generator writes both: the
+manifest from `write_manifest()` (eight views, 36 / 120 / 192 px cells) and the
+palette copied from `gfx/ttd_palette.json`.  It creates the folder too, so a new
+nested `folder` value works without preparing anything by hand.
+
+Both come from China-Set-Trains, and `src/template.pnml` crops the sheets with
+exactly the rectangles the manifest describes — so a stray copy would silently
+change how a model is rendered or cut out.  Check them with:
+
+```bash
+python3 tools/check_gfx_config.py
+python3 tools/check_gfx_config.py --reference /path/to/China-Set-Trains
+```
+
+The manifest it compares against is the one 76 of the 77 copies in
+China-Set-Trains use; the odd one out is `gfx/steam/extralength/`, which uses
+256 px cells for extra-long steam locomotives.
+
+### Nested folders
+
+The `folder` column may be a **multi level path**, up to four segments, each
+made of letters, digits, `_`, `.` and `-`:
+
+```
+diesel
+diesel/df4c
+export/dprk/df4c
+```
+
+Then `gfx/export/dprk/df4c/` holds the models, `src/export/dprk/df4c/` holds the
+generated PNML, and `make sprites` renders every level (the Makefile collects
+one to four levels deep — `find` is not used because on stock Windows it is
+`find.exe`, the text search tool).
+
+This works because a sprite template's first parameter is the folder **path as a
+plain string**, not an identifier:
+
+```
+template template_standard (folder, b) {
+    [0, 0, 36, 166, -14, -80, "gfx/"+folder+"/"+b+"_32bpp.png"]
+    ...
+}
+spriteset (spriteset_df4c_origin, ZOOM_LEVEL_IN_4X, BIT_DEPTH_32BPP) {
+    template_standard ("dprk/df4c", "df4c-origin")
+}
+```
+
+Do not try to rewrite the path inside the template with `subst()`: nmlc 0.9.0
+has no string functions and stops with `'subst' is not defined as a function`.
+The path has to be passed through whole.
+
+A suffix that is a file name fragment may contain dashes (`korea-1` gives the
+sheet `df4c-korea-1`).  NML *identifiers* may not, so the generated spriteset
+and switch names fold every run of non-alphanumerics into one underscore:
+`spriteset_df4c_korea_1`.  The sprite sheet keeps its dashes.

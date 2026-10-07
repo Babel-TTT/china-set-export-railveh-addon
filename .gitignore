@@ -21,4 +21,5 @@ src/.genpnml-manifest
 gfx/.workbench-sprites.json
 data/*.csv.workbench.bak
 data/*.csv.workbench.tmp
-web/workbench/__pycache__/
+docs/*.csv.workbench.bak
+docs/*.csv.workbench.tmp

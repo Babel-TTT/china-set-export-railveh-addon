@@ -124,25 +124,22 @@ VEHICLE_FIELDS: List[tuple] = [
         "choices": CATEGORIES, "default": "diesel", "applies": "locomotive",
         "help": "决定 ID 段与 ENGINE_CLASS。客车、货车、拖车表里这一列被忽略。"}),
     ("folder", "identity", "text", "gfx 子目录", {
-        "default": "diesel", "placeholder": "diesel",
-        "help": "模型所在目录，也是精灵图模板的第一个参数。只能是 gfx/ 下的单层目录名。"}),
+        "default": "diesel", "placeholder": "diesel/df4c",
+        "help": "模型所在目录，也是精灵图模板的第一个参数：可以写多级，"
+                "例如 diesel/df4c 或 export/dprk/df4c（最多 4 层，用 / 分隔）。"
+                "每一层只能用字母、数字、下划线、点和横线。目录里的 manifest.json 与 "
+                "ttd_palette.json 由 genpnml.py 自动补齐，"
+                ".vox 模型要你自己放进去。"}),
     ("parts", "identity", "list", "分段长度", {
         "default": "2|8|2", "placeholder": "2|8|2",
         "help": "三段长度，| , ; 都可作分隔符，例如 2|8|2。中间那个是车身长度，"
                 "两端固定为 2（隐形车厢）。"}),
-    ("power_section", "identity", "int", "动力段索引", {
+    ("power_section", "identity", "int", "车身段索引", {
         "default": "1", "min": 0,
-        "help": "承载车体图形、功率与载量的段序号（从 0 开始），三段结构就是 1。"}),
-    ("graphics_parts", "identity", "list", "分节图像规则", {
-        "default": "",
-        "placeholder": "consist<=6=emu_short | emu_mid | consist<=6=emu_short;"
-                       "emu_midbody;"
-                       "consist<=6=emu_short | emu_mid | consist<=6=emu_short",
-        "help": "按段用 ; 分隔（需与 parts 段数一致），段内用 | 分隔规则，"
-                "规则写成 条件=基名 或 只写基名（兜底）。"
-                "可用变量：pos（整列第几节，从 0 起）、tailpos（从尾部数）、"
-                "consist（整列节数）、unitpos（本车第几段）。"
-                "留空则只有车身段出图、两端隐形。"}),
+        "help": "哪一段是「车身」段：承载贴图的段。三段结构就是 1（第 2 段）。"
+                "列名沿用 power_section，但功率与重量都是整车属性，"
+                "早已不再按段下发；这一列现在只决定载量归属、"
+                "没有分节规则时的车身贴图，以及供电外观特效。"}),
 
     ("intro_year", "dates", "int", "启用年份", {
         "default": "1950", "min": 1800, "max": 2200}),
@@ -242,9 +239,22 @@ LIVERY_FIELDS: List[tuple] = [
     ("sprite_suffix", "identity", "text", "精灵图后缀", {
         "default": "", "placeholder": "green",
         "help": "后缀 green 表示模型是 gfx/<folder>/<id>-green.vox；留空表示直接用 <id>。"}),
-    ("string", "identity", "text", "涂装名称字符串", {
-        "default": "STR_BUILD_YEAR", "placeholder": "STR_EXPORT_BLUE",
-        "help": "改装菜单里显示的标签，需要存在于 docs/str.csv。"}),
+    ("string", "identity", "text", "涂装名称", {
+        "default": "LV_BUILD_YEAR", "placeholder": "LV_EXPORT_BLUE",
+        "help": "改装菜单里显示的标签。涂装标签统一写成 LV_<名字>，生成器会把它映射成"
+                "NML 常量 STR_LV_<名字>；名字必须在 docs/str.csv 里，"
+                "可以在「字符串表」页新增。写 STR_ 开头的常量也可以，"
+                "但 LV_ 开头的会单独归类，便于筛选。"}),
+    ("graphics_parts", "identity", "list", "分节图像规则", {
+        "default": "",
+        "placeholder": "consist<=6=emu_short | emu_mid | consist<=6=emu_short;"
+                       "emu_midbody;"
+                       "consist<=6=emu_short | emu_mid | consist<=6=emu_short",
+        "help": "这一行涂装的分节换图规则：按段用 ; 分隔（需与车辆的 parts 段数一致），"
+                "段内用 | 分隔规则，规则写成 条件=基名 或 只写基名（兜底）。"
+                "可用变量：pos（整列第几节，从 0 起）、tailpos（从尾部数）、"
+                "consist（整列节数）、unitpos（本车第几段）。"
+                "留空则只有车身段出图、两端隐形。"}),
     ("from_year", "dates", "int", "起始年份", {"default": "0", "min": 0, "help": "0 表示不限。"}),
     ("to_year", "dates", "int", "结束年份", {"default": "9999", "min": 0, "help": "9999 表示不限。"}),
     ("purchase_suffix", "identity", "text", "菜单精灵图后缀", {"default": ""}),

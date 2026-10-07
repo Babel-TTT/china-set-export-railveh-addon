@@ -5,8 +5,8 @@ tools/clear_vehicle_data.py -- reset the project to an empty vehicle list
 
 Removes every data row from the vehicle tables (the documentation header of
 each file is kept, including the column reference comment), empties the livery
-and cargo appearance tables, and deletes the placeholder voxel models together
-with their rendered PNGs.
+and cargo appearance tables, and deletes the voxel models of the removed rows
+together with their rendered PNGs.
 
 The shared library files (src/header.pnml, template, functions, railtypetable,
 cargotable) and the generator itself are left alone, so `make` still works and
@@ -67,7 +67,7 @@ def main(argv):
         if apply:
             rewrite_table(path, comments, header)
 
-    print("=== placeholder models ===")
+    print("=== voxel models ===")
     vox, png = [], []
     for folder, _dirs, files in os.walk("gfx"):
         for name in files:

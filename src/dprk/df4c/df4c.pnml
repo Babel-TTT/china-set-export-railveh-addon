@@ -1,6 +1,6 @@
 /* ==========================================================================
  *  China Set: Export Rail Vehicles Add-on
- *  src/dprk/df4c.pnml -- generated vehicle code
+ *  src/dprk/df4c/df4c.pnml -- generated vehicle code
  *
  *  *** GENERATED FILE -- DO NOT EDIT BY HAND ***
  *  Produced by genpnml.py from the tables in data/.
@@ -10,6 +10,12 @@
 /* ==========================================================================
  *  SWITCHES  (callbacks, livery and cargo selection)
  * ========================================================================== */
+
+switch (FEAT_TRAINS, SELF, switch_df4c_cargo_subtype, cargo_subtype) {
+    0: return string(STR_LV_DPRK);
+    1: return string(STR_LV_BLUEGREEN_ALT);
+    return CB_RESULT_NO_TEXT;
+}
 
 switch (FEAT_TRAINS, SELF, switch_df4c_articulated_part, extra_callback_info1) {
     1..2: return df4c;
@@ -21,21 +27,40 @@ switch (FEAT_TRAINS, SELF, switch_df4c_capacity, position_in_articulated_veh % 3
     return 0;
 }
 
-switch (FEAT_TRAINS, SELF, switch_df4c_graphics, position_in_articulated_veh % 3) {
-    1: spriteset_df4c_origin;
+switch (FEAT_TRAINS, SELF, switch_df4c_section_0, position_in_articulated_veh % 3) {
+    1: spriteset_df4c_korea_1;
     empty_sprites;
+}
+
+switch (FEAT_TRAINS, SELF, switch_df4c_section_1, position_in_articulated_veh % 3) {
+    1: spriteset_df4c_korea_2;
+    empty_sprites;
+}
+
+switch (FEAT_TRAINS, SELF, switch_df4c_graphics, cargo_subtype) {
+    0: switch_df4c_section_0;
+    1: switch_df4c_section_1;
+    switch_df4c_section_0;
 }
 
 /* ==========================================================================
  *  SPRITESETS
  * ========================================================================== */
 
-spriteset (spriteset_df4c_origin, ZOOM_LEVEL_IN_4X, BIT_DEPTH_32BPP) {
-    template_standard ("dprk", "df4c-origin")
+spriteset (spriteset_df4c_korea_1, ZOOM_LEVEL_IN_4X, BIT_DEPTH_32BPP) {
+    template_standard ("dprk/df4c", "df4c-korea-1")
 }
 
-spriteset (spriteset_df4c_purchase_origin, ZOOM_LEVEL_IN_4X, BIT_DEPTH_32BPP) {
-    template_purchase ("dprk", "df4c-origin")
+spriteset (spriteset_df4c_purchase_korea_1, ZOOM_LEVEL_IN_4X, BIT_DEPTH_32BPP) {
+    template_purchase ("dprk/df4c", "df4c-korea-1")
+}
+
+spriteset (spriteset_df4c_korea_2, ZOOM_LEVEL_IN_4X, BIT_DEPTH_32BPP) {
+    template_standard ("dprk/df4c", "df4c-korea-2")
+}
+
+spriteset (spriteset_df4c_purchase_korea_2, ZOOM_LEVEL_IN_4X, BIT_DEPTH_32BPP) {
+    template_purchase ("dprk/df4c", "df4c-korea-2")
 }
 
 /* ==========================================================================
@@ -54,8 +79,9 @@ item (FEAT_TRAINS, df4c) {
 
         // Availability
         climates_available:             ALL_CLIMATES;
-        introduction_date:              date(1950,01,01);
-        model_life:                     30;
+        introduction_date:              date(2015,01,01);
+        model_life:                     60;
+        retire_early:                   30;
         vehicle_life:                   30;
         track_type:                     SACN;
 
@@ -73,9 +99,9 @@ item (FEAT_TRAINS, df4c) {
 
         // Stats
         speed:                          100 km/h;
-        power:                          1000 kW;
+        power:                          2165 kW;
         weight:                         92 ton;
-        tractive_effort_coefficient:    0.25;
+        tractive_effort_coefficient:    0.36;
         cost_factor:                    45;
         running_cost_base:              RUNNING_COST_DIESEL;
         running_cost_factor:            40;
@@ -83,17 +109,18 @@ item (FEAT_TRAINS, df4c) {
     }
     graphics {
         // Menu
-        additional_text:                string(STR_DESC_EXPORT, string(STR_FULL_NAME_DF4C), string(STR_LIVERY_EXPORT, string(STR_ORIGINAL)), string(STR_CAT_LOCO));
+        additional_text:                string(STR_DESC_EXPORT, string(STR_FULL_NAME_DF4C), string(STR_LIVERY_EXPORT, string(STR_LV_BLUEGREEN_ALT)), string(STR_CAT_LOCO));
         name:                           switch_name_series;
+        cargo_subtype_text:             switch_df4c_cargo_subtype;
         can_attach_wagon:               locowagon;
 
         // Graphics
         default:                        switch_df4c_graphics;
-        purchase:                       spriteset_df4c_purchase_origin;
+        purchase:                       spriteset_df4c_purchase_korea_1;
         articulated_part:               switch_df4c_articulated_part;
 
         // Stats
-        length:                         switch_length_2_8_2;
+        length:                         switch_length_2_6_2;
         cargo_capacity:                 switch_df4c_capacity;
         cost_factor:                    45;
         running_cost_factor:            40 * runningcostfactor();
