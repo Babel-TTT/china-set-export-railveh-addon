@@ -69,6 +69,7 @@ switch (FEAT_TRAINS, SELF, switch_<id>_graphics, cargo_subtype) {...}
 switch (FEAT_TRAINS, SELF, switch_<id>_capacity, position_in_articulated_veh % 3) {...}
 switch (FEAT_TRAINS, SELF, switch_<id>_visual, position_in_articulated_veh % 3) {...}
 /* 有分节规则时还会多出 switch_<id>_<涂装序号>_<段序号>（以及嵌套的 _<n>、串联的 _next）这样的规则开关 */
+/* 设了 series_string 时还会多出 switch_<id>_name（购买菜单折叠项的名字回调，见 2.5） */
 
 /* SPRITESETS */
 spriteset (spriteset_<id>, ZOOM_LEVEL_IN_4X, BIT_DEPTH_32BPP) {
@@ -212,7 +213,60 @@ switch_<id>_<变体>_stage     cargo_count         →  半载 / 满载
 多涂装货车会为**每套涂装**生成独立链条，开关名带涂装后缀：
 `switch_c70ex_gray_cargo_class` 等。
 
-### 2.5 其他自动生成的开关
+### 2.5 购买菜单：分组、排序与两级名字
+
+数据表最后三列直接决定购买菜单的呈现：
+
+| 列 | 生成物 |
+| -- | ------ |
+| `variant_group` | `item { property { variant_group: <父项 id>; } }`，即 OpenTTD 13 的分组属性（自动替换菜单也按它分组） |
+| `menu_order` | `src/vehiclesort.pnml` 的 `sort (FEAT_TRAINS, [...])` 里的位置 |
+| `series_string` | 这台车自己的名字回调 `switch_<id>_name` |
+
+`variant_group` 填的是**另一台车的 id**（不是引擎编号），NML 会把它解析成引擎 ID，
+所以 ID 怎样重排都不影响分组：
+
+```nml
+item (FEAT_TRAINS, <id>) {
+    property {
+        // Purchase menu group: shown under <parent>
+        variant_group:                  <parent>;
+    }
+    ...
+}
+```
+
+排序规则在 `render_vehiclesort()`：按 `(menu_order, 载入序号)` 排，留空（或 `0`）
+的车当作无穷大、排在所有设了顺序的车之后并按表序，结果写进 `src/vehiclesort.pnml`
+的 `sort` 块（每个类别前带一行注释）。
+**它故意不是分配 ID 的顺序**：`assign_ids()` 按行序依次发号，把菜单顺序单独做成一列，
+正是为了不去动 `src/vehicleid.pnml` 里的引擎 ID——存档记的是引擎 ID，重排行序会让
+存档里的车对不上号。
+
+设了 `series_string` 的车多一个 `switch_<id>_name`（`emit_name_switch()`）：
+
+```nml
+switch (FEAT_TRAINS, SELF, switch_<id>_name, getbits(extra_callback_info1, 0, 8) == 0x20? getbits(extra_callback_info1, 8, 8) : 0xFFFF) {
+    0: return string(STR_...);
+    return CB_RESULT_NO_TEXT;
+}
+```
+
+0 号槽是购买菜单问「折叠项叫什么」时用的槽，其余槽回 `CB_RESULT_NO_TEXT`，于是
+`property` 里的 `name: string(STR_NAME_<ID>)` 仍然管组内那一行：同一台车在折叠行
+显示系列名、在组里显示自己的车名。没设 `series_string` 但开了 `name_callback` 的车
+共用 `src/functions.pnml` 的 `switch_name_series`。
+
+`series_string` 必须是 `docs/str.csv` 里已有的 `STR_` 常量。`collect_referenced_strings()`
+把它算作引用，`--check` 因此会报 `MISSING`，而不是留到 nmlc 报 `Unknown string`。
+这个函数**递归遍历 `src/`**：生成的车辆文件在 `src/<folder>/<id>.pnml`，
+子目录里的文件同样会被扫到。
+
+分组本身由 `check_variant_groups()` 把关：父项必须存在**于同一张表**、不能是自己、
+不能成环；父项自己也分组只是**警告**（上游把嵌套标为实验性）。工作台保存时调用的
+就是同一个函数，所以两边不会各说各话。
+
+### 2.6 其他自动生成的开关
 
 | 生成物 | 说明 |
 | ------ | ---- |
@@ -237,7 +291,7 @@ newloco,New Loco (Export),diesel,diesel,2|8|2,1,2020,...,120,...
 生成器会自动完成：
 
 1. 在 `src/vehicleid.pnml` 的对应类别区段内分配一个**空闲 ID**（不会与既有车辆冲突）；
-2. 在 `src/vehiclesort.pnml` 中把它排到所属类别的顺序位置；
+2. 在 `src/vehiclesort.pnml` 中按 `menu_order` 把它排进购买菜单顺序（没设的车按表序排在最后，见 2.5）；
 3. 生成全部 `switch` / `spriteset` / `item`；
 4. 在 `docs/str.csv` 中补齐 `STR_NAME_<ID>`、`STR_FULL_NAME_<ID>`；
 5. 准备好 `gfx/<folder>/`：写出该目录的 `manifest.json` 与 `ttd_palette.json`
@@ -310,6 +364,7 @@ ID 由生成器在类别区段内顺序分配，因此：
 | 改变文件组织方式 | `vehicle_file_path()` 与 `render_vehiclefiles()` |
 | 改变 ID 区段 | `BANDS` 与 `BAND_COMMENT` |
 | 改变购买界面文字 | `build_additional_text()` 与 `STATIC_STRINGS` |
+| 改变购买菜单的分组与排序 | `render_item()`（`variant_group` 属性）/ `render_vehiclesort()` / `check_variant_groups()` |
 | 改变精灵图基名的推导规则 | `collect_sprite_basenames()` |
 | 增加输入校验 | `validate_vehicles()` |
 
@@ -338,7 +393,9 @@ python3 tools/check_graphics_parts.py            # 每种 graphics_parts 写法�
 python3 tools/check_section_lengths.py           # 每种 parts 形状都生成并用 nmlc 编译一遍
 python3 tools/check_gfx_config.py                # manifest.json / ttd_palette.json 是否与生成器一致
 python3 tools/check_string_table.py              # 字符串表的读写与引用是否自洽
+python3 tools/check_variant_menu.py              # 临时造一台折叠车、完整编译一遍，检查购买菜单三列
+python3 tools/migrate_menu_columns.py            # 给四张车辆表补上购买菜单的三列（只补缺的列）
 ```
 
-这四个脚本都会自己恢复它们改动过的文件（`check_gfx_config.py` 只读，不改任何东西），
-所以在有改动的工程里直接跑也安全。
+这几个检查脚本都会自己恢复它们改动过的数据表，并在收尾时按恢复后的表重新生成代码
+（`check_gfx_config.py` 只读，不改任何东西），所以在有改动的工程里直接跑也安全。

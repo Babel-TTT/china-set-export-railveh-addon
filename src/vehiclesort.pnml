@@ -8,7 +8,8 @@
  * ========================================================================== */
 
 //Order of the tables in data/: locomotives, coaches, wagons, unit wagons.
-//Within a table the order is the row order of the CSV file.
+//Within a table the order is the row order of the CSV file, unless the
+//row sets menu_order; rows without one come last, in table order.
 
 sort (FEAT_TRAINS, [
     // Locomotives/Diesel

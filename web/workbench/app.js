@@ -121,13 +121,103 @@
     renderAux();
     renderVariants();
     renderStrings();
+    renderStringDatalist();
+  }
+
+  /**
+   * Every STR constant the string table defines, as one shared datalist.
+   *
+   * The fleet overview's 折叠项名称 box points at it (`list="strList"`), so the
+   * author chooses a constant that exists instead of typing one and finding out
+   * at `make check` that it does not.
+   */
+  function renderStringDatalist() {
+    let list = $('strList');
+    if (!list) {
+      list = document.createElement('datalist');
+      list.id = 'strList';
+      document.body.appendChild(list);
+    }
+    const names = [...new Set((state.strings || [])
+      .map((row) => String(row.constant || '').trim())
+      .filter((name) => name.startsWith('STR_')))].sort();
+    list.innerHTML = names.map((name) => `<option value="${esc(name)}"></option>`).join('');
+  }
+
+  /**
+   * The fleet in purchase menu order.
+   *
+   * The arrows move a vehicle within this list, not within what is on screen, so
+   * a search or a table filter cannot make them mean something else.  The server
+   * computes `menu_index` from the same rule the generator uses for the sort
+   * block, so this is the order the depot will show.
+   */
+  function fleetMenuOrder() {
+    return (state.fleet.vehicles || []).slice()
+      .sort((a, b) => (a.menu_index ?? 0) - (b.menu_index ?? 0));
+  }
+
+  /**
+   * The vehicles that may be this one's parent in the purchase menu.
+   *
+   * Same table only (OpenTTD resolves the parent inside one GRF feature list),
+   * never itself, and never one of its own descendants -- that would make a
+   * cycle, which the generator refuses and the depot could not draw.
+   */
+  function groupCandidates(vehicle) {
+    const all = state.fleet.vehicles || [];
+    const parentOf = (id) => {
+      const row = all.find((v) => v.table === vehicle.table && v.id === id);
+      return row ? (row.variant_group || '').trim() : '';
+    };
+    return all
+      .filter((other) => other.table === vehicle.table && other.id !== vehicle.id)
+      .filter((other) => {
+        const seen = new Set();
+        let node = other.id;
+        while (node && !seen.has(node)) {
+          if (node === vehicle.id) return false;
+          seen.add(node);
+          node = parentOf(node);
+        }
+        return true;
+      });
+  }
+
+  async function saveFleetMenu(rows, message) {
+    try {
+      const result = await jsonFetch('/fleet-menu', {
+        method: 'POST',
+        body: JSON.stringify({ rows }),
+      });
+      if (!report(result, message)) return;
+      applyState(result.state);
+      renderFleet();
+    } catch (error) {
+      setStatus(error.message, 'error');
+    }
+  }
+
+  /** Move one vehicle one place in the purchase menu. */
+  async function moveFleet(vehicle, step) {
+    const order = fleetMenuOrder();
+    const index = order.findIndex(
+      (item) => item.table === vehicle.table && item.id === vehicle.id);
+    const target = index + step;
+    if (index < 0 || target < 0 || target >= order.length) return;
+    const moved = order.slice();
+    [moved[index], moved[target]] = [moved[target], moved[index]];
+    // renumber the whole list in tens, so a later insert fits between two rows
+    await saveFleetMenu(moved.map((item, position) => ({
+      table: item.table, id: item.id, menu_order: String((position + 1) * 10),
+    })), '已调整购买菜单顺序。');
   }
 
   function renderFleet() {
     const search = ($('fleetSearch').value || '').trim().toLowerCase();
     const tableFilter = $('fleetTable').value;
     const list = $('fleetList');
-    const vehicles = (state.fleet.vehicles || []).filter((vehicle) => {
+    const vehicles = fleetMenuOrder().filter((vehicle) => {
       if (tableFilter && vehicle.table !== tableFilter) return false;
       if (!search) return true;
       return [vehicle.id, vehicle.name_string, vehicle.comment, vehicle.category]
@@ -141,6 +231,7 @@
       return;
     }
 
+    const order = fleetMenuOrder();
     list.innerHTML = vehicles.map((vehicle) => {
       const selected = state.selected && state.selected.id === vehicle.id
         && state.selected.table === vehicle.table;
@@ -159,10 +250,47 @@
         vehicle.ac_supply === '1' ? '<span class="tag">供电</span>' : '',
         vehicle.mu === '1' ? '<span class="tag">动车组</span>' : '',
       ].filter(Boolean).join('');
+
+      // purchase menu / group membership, editable right here in the overview
+      const group = (vehicle.variant_group || '').trim();
+      const series = (vehicle.series_string || '').trim();
+      const candidates = groupCandidates(vehicle);
+      const known = !series || Boolean(stringContent(series));
+      const atTop = vehicle.menu_index === 0;
+      const atEnd = vehicle.menu_index === (order.length - 1);
+      const menu = `<div class="vmenu">
+        <span class="hint">顺序</span>
+        <span class="tag">${vehicle.menu_index + 1} / ${order.length}</span>
+        <button data-fleet-move="-1" ${atTop ? 'disabled' : ''}
+          title="在购买菜单里上移一位">▲</button>
+        <button data-fleet-move="1" ${atEnd ? 'disabled' : ''}
+          title="在购买菜单里下移一位">▼</button>
+        <span class="hint">折叠到</span>
+        <select data-fleet-group title="在购买菜单里把这台车折叠到另一台车下面">
+          <option value="">独立一条</option>
+          ${candidates.map((other) => `<option value="${esc(other.id)}"
+            ${other.id === group ? ' selected' : ''}>${esc(other.id)}</option>`).join('')}
+          ${group && !candidates.some((other) => other.id === group)
+            ? `<option value="${esc(group)}" selected>${esc(group)}（不在本表）</option>` : ''}
+        </select>
+        <span class="hint">折叠项名称</span>
+        <input data-fleet-series value="${esc(series)}" list="strList"
+          placeholder="STR_… 留空 = 用共享系列名"
+          title="折叠起来那一级显示的名字；填字符串表里已有的 STR 常量">
+        ${known ? '' : `<span class="tag bad" title="这个常量不在字符串表里，make check 会报 missing">字符串不存在</span>`}
+        ${vehicle.children_count
+          ? `<span class="tag cyan">${vehicle.children_count} 个变体折在这里</span>`
+          : ''}
+        ${group && vehicle.children_count
+          ? '<span class="tag warn" title="上游把多层嵌套标为实验性，建议只用一层">自己也折叠了</span>'
+          : ''}
+      </div>`;
+
       return `<div class="vcard${selected ? ' sel' : ''}" data-table="${esc(vehicle.table)}" data-id="${esc(vehicle.id)}">
         <div>
           <div class="vid">${esc(vehicle.id)} <span class="vname">${esc(vehicle.name_string || '')}</span></div>
           <div class="tags">${tags}</div>
+          ${menu}
         </div>
         <div class="right-col hint">
           <div>${esc(vehicle.intro_year || '—')} 年 · ${esc(vehicle.speed || '—')} km/h</div>
@@ -2069,6 +2197,16 @@
         renderSpritePreview();
         return;
       }
+      // ---- fleet overview: purchase menu order and grouping
+      const fleetMove = event.target.closest('[data-fleet-move]');
+      if (fleetMove) {
+        const card = fleetMove.closest('.vcard');
+        const vehicle = (state.fleet.vehicles || []).find(
+          (item) => item.table === card.dataset.table && item.id === card.dataset.id);
+        if (vehicle) moveFleet(vehicle, Number(fleetMove.dataset.fleetMove));
+        return;
+      }
+
       const save = event.target.closest('[data-livery-save]');
       if (save) {
         saveLiveryRow(Number(save.closest('.livery').dataset.livery));
@@ -2144,6 +2282,22 @@
     // selects and number boxes in the block editor commit on change/blur: each
     // one is a tree edit that has to be rendered back into the cell
     document.addEventListener('change', (event) => {
+      // ---- fleet overview: the purchase menu's grouping and group label
+      const group = event.target.closest('[data-fleet-group]');
+      if (group) {
+        const card = group.closest('.vcard');
+        saveFleetMenu([{ table: card.dataset.table, id: card.dataset.id,
+          variant_group: group.value }], '已更新购买菜单分组。');
+        return;
+      }
+      const series = event.target.closest('[data-fleet-series]');
+      if (series) {
+        const card = series.closest('.vcard');
+        saveFleetMenu([{ table: card.dataset.table, id: card.dataset.id,
+          series_string: series.value.trim() }], '已更新折叠项名称。');
+        return;
+      }
+
       const field = event.target.closest('.livery [data-rule-field]');
       if (field) {
         const card = field.closest('.livery');

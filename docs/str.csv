@@ -62,7 +62,8 @@ STR_CAT_COACH,Passenger coach,客车
 STR_CAT_WAGON,Freight wagon,货车
 STR_CAT_MU,Multiple unit,动车组
 STR_CAT_MU_TRAILER,Multiple unit trailer,动车组拖车
-STR_NAME_DF4C,DF4C (DPRK),
+STR_NAME_DF4C,DF4C (DPRK),DF4C （朝鲜）
 STR_FULL_NAME_DF4C,DF4C (DPRK),
 STR_LV_BLUEGREEN,{BLUE}Blue{GREEN} Green Livery,{BLUE}蓝{GREEN}绿涂装
 STR_LV_BLUEGREEN_ALT,{BLUE}Alternative Blue{GREEN} Green Livery,{BLUE}另一种蓝{GREEN}绿涂装
+STR_LV_GREEN_W_WHITE,{DKGREEN}Green Livery With {WHITE}White Waistline,{DKGREEN}绿色涂装{WHITE}带白色腰线

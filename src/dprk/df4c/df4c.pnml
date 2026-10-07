@@ -12,8 +12,9 @@
  * ========================================================================== */
 
 switch (FEAT_TRAINS, SELF, switch_df4c_cargo_subtype, cargo_subtype) {
-    0: return string(STR_LV_DPRK);
+    0: return string(STR_LV_BLUEGREEN);
     1: return string(STR_LV_BLUEGREEN_ALT);
+    2: return string(STR_LV_GREEN_W_WHITE);
     return CB_RESULT_NO_TEXT;
 }
 
@@ -37,9 +38,15 @@ switch (FEAT_TRAINS, SELF, switch_df4c_section_1, position_in_articulated_veh % 
     empty_sprites;
 }
 
+switch (FEAT_TRAINS, SELF, switch_df4c_section_2, position_in_articulated_veh % 3) {
+    1: spriteset_df4c_korea_3;
+    empty_sprites;
+}
+
 switch (FEAT_TRAINS, SELF, switch_df4c_graphics, cargo_subtype) {
     0: switch_df4c_section_0;
     1: switch_df4c_section_1;
+    2: switch_df4c_section_2;
     switch_df4c_section_0;
 }
 
@@ -61,6 +68,14 @@ spriteset (spriteset_df4c_korea_2, ZOOM_LEVEL_IN_4X, BIT_DEPTH_32BPP) {
 
 spriteset (spriteset_df4c_purchase_korea_2, ZOOM_LEVEL_IN_4X, BIT_DEPTH_32BPP) {
     template_purchase ("dprk/df4c", "df4c-korea-2")
+}
+
+spriteset (spriteset_df4c_korea_3, ZOOM_LEVEL_IN_4X, BIT_DEPTH_32BPP) {
+    template_standard ("dprk/df4c", "df4c-korea-3")
+}
+
+spriteset (spriteset_df4c_purchase_korea_3, ZOOM_LEVEL_IN_4X, BIT_DEPTH_32BPP) {
+    template_purchase ("dprk/df4c", "df4c-korea-3")
 }
 
 /* ==========================================================================
@@ -100,7 +115,7 @@ item (FEAT_TRAINS, df4c) {
         // Stats
         speed:                          100 km/h;
         power:                          2165 kW;
-        weight:                         92 ton;
+        weight:                         132 ton;
         tractive_effort_coefficient:    0.36;
         cost_factor:                    45;
         running_cost_base:              RUNNING_COST_DIESEL;
@@ -109,7 +124,7 @@ item (FEAT_TRAINS, df4c) {
     }
     graphics {
         // Menu
-        additional_text:                string(STR_DESC_EXPORT, string(STR_FULL_NAME_DF4C), string(STR_LIVERY_EXPORT, string(STR_LV_BLUEGREEN_ALT)), string(STR_CAT_LOCO));
+        additional_text:                string(STR_DESC_EXPORT, string(STR_FULL_NAME_DF4C), string(STR_LIVERY_EXPORT, string(STR_LV_BLUEGREEN_ALT), string(STR_LV_GREEN_W_WHITE)), string(STR_CAT_LOCO));
         name:                           switch_name_series;
         cargo_subtype_text:             switch_df4c_cargo_subtype;
         can_attach_wagon:               locowagon;

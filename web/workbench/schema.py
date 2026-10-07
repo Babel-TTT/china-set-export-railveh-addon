@@ -38,6 +38,7 @@ GROUPS: List[Dict[str, str]] = [
     {"id": "cost", "label": "成本与可靠性", "note": "相对价格系数，最终价格由 GRF 参数缩放。"},
     {"id": "cargo", "label": "货运与容量", "note": "可改装货物、默认货物与载量。"},
     {"id": "systems", "label": "装置", "note": "供电、空调、餐车、动车组等属性。"},
+    {"id": "menu", "label": "购买菜单", "note": "车辆在车库列表里的归属与顺序。"},
     {"id": "text", "label": "文案", "note": "车厢描述与备注。"},
     {"id": "meta", "label": "元数据", "note": "人类可读的备注，生成器不读取。"},
 ]
@@ -111,7 +112,7 @@ CARGO_CLASSES: List[str] = [
 CUSTOM_TAGS: List[str] = ["ALL_CLIMATES", "VEHICLE_NEVER_EXPIRES"]
 
 # --------------------------------------------------------------------------
-# the 46 vehicle columns, in the order of the CSV header
+# the vehicle columns, in the order of the CSV header
 # --------------------------------------------------------------------------
 VEHICLE_FIELDS: List[tuple] = [
     ("id", "identity", "text", "车辆 ID", {
@@ -221,6 +222,25 @@ VEHICLE_FIELDS: List[tuple] = [
         "default": "", "min": 0,
         "help": "动车组最少要挂几个三节单元才能出库（1 个单元 = 1 台车 = 3 段）。"
                 "留空或 0 表示不限制，单组也能单独运行。仅对 mu=1 的车生效。"}),
+
+    ("variant_group", "menu", "text", "购买菜单分组", {
+        "default": "",
+        "placeholder": "留空 = 独立一条",
+        "help": "填另一台车的 id，这台车就在购买菜单（以及自动替换菜单）里折叠到它下面"
+                "——OpenTTD 13 的车辆变体。父项必须是同一张表里的另一台车，不能指向自己，"
+                "也不能成环；上游把多层嵌套标为实验性，建议只用一层。"}),
+    ("menu_order", "menu", "int", "购买菜单顺序", {
+        "default": "", "min": 0,
+        "help": "数字越小越靠前；留空的车排在所有设了顺序的车之后，并按表格行序排列。"
+                "改这里不会动车辆 ID——ID 是按表格行序分配的，所以排序必须用这一列。"}),
+    ("series_string", "menu", "text", "折叠项名称", {
+        "default": "",
+        "placeholder": "留空 = 用共享系列名",
+        "help": "这台车折叠起来时，上面那一级显示的名字，填一个 STR_ 常量"
+                "（要已在 docs/str.csv 里，否则 make check 会报 missing）。"
+                "不填则沿用 functions.pnml 里共享的 switch_name_series。"
+                "生成为 graphics { name: switch_<id>_name; } 这个回调，"
+                "所以折叠行显示系列名、展开后它自己那一行仍显示本车自己的名字。"}),
 
     ("additional_text", "text", "text-long", "车厢描述", {
         "default": "",

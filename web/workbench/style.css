@@ -214,6 +214,17 @@ aside.right { border-left: 1px solid var(--line); }
   border-radius: 6px; color: #ffaaa4; font-size: 12px; }
 .rule-preview { display: flex; flex-direction: column; gap: 6px; margin-top: 5px; }
 
+/* tier 1: the purchase menu controls that sit on every fleet card. The arrows
+   move the vehicle in the depot list, the two fields say which group row it
+   folds under and what that group row is called. */
+.vmenu { display: flex; flex-wrap: wrap; gap: 6px; align-items: center;
+  margin-top: 6px; padding-top: 6px; border-top: 1px dashed var(--line-soft);
+  font-size: 12px; }
+.vmenu select { max-width: 170px; }
+.vmenu input { width: 190px; }
+.vmenu input.bad { border-color: #a44943; }
+.vmenu button { padding: 1px 8px; }
+
 /* tier 2: the switch-block editor. One block is one generated switch, one row is
    one case, and the row's target is either a sprite sheet or another switch. */
 .rule-text { margin-top: 6px; }

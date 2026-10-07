@@ -81,6 +81,9 @@ The flag columns (`ac_supply`, `airconditioned`, `restaurant`, `mu`,
 | `folder` | sub folder of `gfx/` holding the model, and the first argument of the sprite templates.  May be a nested path of up to four segments (`export/dprk/df4c`).  See [sprite files](#sprite-files). |
 | `parts` | the section lengths, `\|` separated: `<short>\|<body>\|<short>`, normally `2\|8\|2`.  The **number of values is the number of sections** the vehicle has, and one value is a plain non-articulated vehicle.  The unit is 4 px, so `8` is about 32 px long.  The short sections at the ends exist to make the vehicle fit the track; the body section carries the sprite and the load.  The count is **normally a multiple of three** — invisible head, cargo body, invisible tail — so a longer unit repeats that group (`2\|8\|2\|2\|8\|2`).  A count that is not a multiple of three is reported as a **warning** and still generates and compiles: `position_in_articulated_veh % N` works for any N, so this is a convention about the artwork (and what `min_cars` and the shared `switch_length_2_<body>_2` switch assume), **not a NewGRF requirement**. |
 | `power_section` | index of the **body** section: the one that carries the load, draws the body sprite when a scheme names no per section rules, and shows the head end power effect.  `1` for the standard three section layout.  The column keeps its historical name; **power and weight are whole vehicle properties and are not distributed across sections** — see [capacity and sections](#capacity-and-sections). |
+| `variant_group` | the **id** of the vehicle this row folds under in the purchase menu (and in the autoreplace list), or empty for an entry of its own.  An id (`df4c`), not an engine number, so the grouping survives ID renumbering; the parent has to be in the same table.  See [the purchase menu](#the-purchase-menu). |
+| `menu_order` | a non negative integer: where the entry sits in the purchase menu.  Empty sorts after every row that sets one, in table order.  See [why `menu_order` instead of dragging rows](#why-menu_order-instead-of-dragging-rows). |
+| `series_string` | the `STR_` constant the folded row of a group shows, or empty to share the set wide series name.  It has to be defined in `docs/str.csv`; `genpnml.py --check` reports it as `MISSING`.  See [the two level name](#the-two-level-name). |
 | `intro_year`, `intro_month`, `intro_day` | introduction date. |
 | `model_life` | `VEHICLE_NEVER_EXPIRES` or a number of years. |
 | `retire_early` | years of early retirement, or empty. |
@@ -169,6 +172,92 @@ the whole vehicle including every articulated section, so the generator writes a
 single `power: 2165 kW;` and `weight: 92 ton;` with no switch involved.  This is
 what the parent set does too.  Only `cargo_capacity` is read per section by
 OpenTTD, which is why it is the only value that needs the callback above.
+
+## The purchase menu
+
+The purchase menu is a flat list of engines, and every table row is one entry.
+Three columns change how that list presents the vehicle.  They are the last
+three columns of all four vehicle tables, just before `comment`:
+
+| column | meaning |
+| ------ | ------- |
+| `variant_group` | the **id** of the vehicle this one is folded under — its **parent** in the purchase menu (OpenTTD 13's *vehicle variants in expandable purchase list*, the `variant_group` NML property; the autoreplace list uses the same grouping).  Empty means an entry of its own.  Groups may nest, but upstream marks nesting experimental and this set uses one level. |
+| `menu_order` | where the entry sits in the list, a non negative integer.  Empty (or an explicit `0`) sorts after every row that sets one, in table order. |
+| `series_string` | the `STR_` constant a folded group header shows, or empty to share the set wide `switch_name_series`.  It has to be defined in `docs/str.csv`. |
+
+`variant_group` names another vehicle **by its id** (`df4c`), not by an engine
+number, and `genpnml.py` writes it straight into the item's `property` block:
+
+```
+property {
+    ...
+    // Purchase menu group: shown under df4c
+    variant_group:                  df4c;
+}
+```
+
+NML resolves that identifier to the engine ID itself, so the grouping survives
+any change in how IDs are handed out.  It is **per vehicle, not per livery**:
+two paint schemes of one vehicle are chosen inside the refit menu
+(`cargo_subtype`) and can never be two purchase menu entries, so there is
+nothing for them to fold under.
+
+### Why `menu_order` instead of dragging rows
+
+Ordering the menu by ordering the rows of the table is not possible.
+`assign_ids()` walks the tables in row order and hands out the IDs of each
+category band as it goes, so moving a row past another one changes which engine
+ID a vehicle gets — and engine IDs are what a savegame stores, so a reordered
+row would break the save.  Order is therefore a **column**: the generator sorts
+the vehicles on `(menu_order or +infinity, table and row index)` and writes
+`src/vehiclesort.pnml` in that order, which leaves the row order — and with it
+every engine ID — alone.
+
+### The two level name
+
+A vehicle that heads a group reads differently in the two levels of the menu:
+the collapsed row shows the series, the row inside the group shows the vehicle's
+own name.  The vehicle keeps its own name in the property block as always, and
+gets a name callback of its own when it sets `series_string`:
+
+```
+property {
+    name:                           string(STR_NAME_DF4C);
+}
+graphics {
+    name:                           switch_df4c_name;
+}
+
+switch (FEAT_TRAINS, SELF, switch_df4c_name, getbits(extra_callback_info1, 0, 8) == 0x20? getbits(extra_callback_info1, 8, 8) : 0xFFFF) {
+    0: return string(STR_EXPORT_SERIES);
+    return CB_RESULT_NO_TEXT;
+}
+```
+
+Slot 0 is the one the menu asks for the group header; every other slot answers
+`CB_RESULT_NO_TEXT`, which leaves the property's own name in charge.
+`src/functions.pnml`'s shared `switch_name_series` does the same for the
+vehicles that do not set `series_string`.
+
+### What the generator refuses
+
+The check is written once, in `genpnml.check_variant_groups()`, and the web
+workbench calls the same function, so the two cannot disagree:
+
+* the parent must exist **in the same table** — a locomotive and a wagon never
+  share a purchase list family;
+* it must not be the vehicle itself, so a vehicle that others fold under leaves
+  its own `variant_group` empty (`variant_group 不能指向自己`);
+* the links must not form a cycle;
+* a parent that is itself grouped is a **warning**, not an error: nesting works
+  but is experimental upstream, and the convention here is one level.
+
+The three columns are added to the existing tables by
+`tools/migrate_menu_columns.py`, which adds only the columns a table is missing,
+so it is safe to run again.  `tools/check_variant_menu.py` exercises all three
+together: it creates a temporary second locomotive, folds it under `df4c`,
+builds the whole GRF and checks the grouping, the callback, the two names and
+the sort order, then puts everything back.
 
 ## Per section graphics
 

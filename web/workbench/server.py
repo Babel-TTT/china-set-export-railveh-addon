@@ -81,6 +81,12 @@ BACKUP_SUFFIX = ".workbench.bak"
 # a livery label is written LV_<NAME> and becomes STR_LV_<NAME> in the code;
 # a raw STR_ constant is still accepted so older tables keep working
 LIVERY_LABEL_RE = re.compile(r"^(?:LV_[A-Za-z0-9_]+|STR_[A-Za-z0-9_]+)$")
+# A purchase menu group label is *not* a livery label: it goes into the NML
+# verbatim as a string the player reads, so it has to be a real STR_ constant.
+# LV_ values are deliberately not accepted here -- genpnml.py would refuse the
+# cell, and a workbench that saves something the build rejects is worse than one
+# that says no.
+SERIES_STRING_RE = re.compile(r"^STR_[A-Z0-9_]+$")
 # the six labels the generator shipped before the LV_ convention, which map onto
 # their STR_LV_ names instead of being reported as undefined
 LEGACY_LIVERY_LABELS = {
@@ -215,14 +221,26 @@ class TableChangedError(RuntimeError):
     """The file changed after the rows were read."""
 
 
+def check_table_unchanged(table: str) -> None:
+    """Refuse to write a table that changed since the server last touched it.
+
+    Separated from write_table so a request that writes several tables can check
+    them all before writing any: a refusal half way through would leave the data
+    in a state nobody asked for.
+    """
+    if table not in TABLE_STAMPS:
+        return
+    current = table_stamp(table_path(table))
+    if current is not None and current != TABLE_STAMPS[table]:
+        raise TableChangedError(
+            "%s 在读取之后被改动过，为避免覆盖别人的修改，本次写入已取消。"
+            "请点「重新读取」后再改一次。" % table)
+
+
 def write_table(table: str, comments, header, rows, force: bool = False) -> None:
     path = table_path(table)
-    if not force and table in TABLE_STAMPS:
-        current = table_stamp(path)
-        if current is not None and current != TABLE_STAMPS[table]:
-            raise TableChangedError(
-                "%s 在读取之后被改动过，为避免覆盖别人的修改，本次写入已取消。"
-                "请点「重新读取」后再改一次。" % table)
+    if not force:
+        check_table_unchanged(table)
     if path.is_file():
         shutil.copyfile(path, path.with_name(path.name + BACKUP_SUFFIX))
     temporary = path.with_name(path.name + ".workbench.tmp")
@@ -1020,7 +1038,6 @@ def build_state() -> dict:
                 "name_string": row.get("name_string", ""),
                 "category": category,
                 "folder": row.get("folder", ""),
-                "model": row.get("model", ""),
                 "intro_year": row.get("intro_year", ""),
                 "track_type": row.get("track_type", ""),
                 "speed": row.get("speed", ""),
@@ -1031,6 +1048,10 @@ def build_state() -> dict:
                 "airconditioned": row.get("airconditioned", ""),
                 "mu": row.get("mu", ""),
                 "comment": row.get("comment", ""),
+                # the purchase menu columns the fleet overview edits in place
+                "variant_group": row.get("variant_group", ""),
+                "menu_order": row.get("menu_order", ""),
+                "series_string": row.get("series_string", ""),
             })
 
     aux = {}
@@ -1113,6 +1134,29 @@ def build_state() -> dict:
         vehicle["sections"] = parts_by_id.get(vehicle["id"], 3)
 
     counts = {table: len(tables[table][2]) for table in VEHICLE_TABLES}
+
+    # Purchase menu order and grouping, so the fleet overview can show the list
+    # the way the depot will and edit it in place.  The order is the generator's
+    # own rule: menu_order first, empty last, then the table and row order.
+    def menu_key(item):
+        row = item[1]
+        try:
+            order = int((row.get("menu_order") or "").strip() or 0)
+        except ValueError:
+            order = 0
+        return (order if order > 0 else 10 ** 6, item[0])
+
+    ordered = [vehicle for _index, vehicle in sorted(enumerate(vehicles), key=menu_key)]
+    children: dict = {}
+    for vehicle in vehicles:
+        parent = (vehicle.get("variant_group") or "").strip()
+        if parent:
+            children[(vehicle.get("table"), parent)] = \
+                children.get((vehicle.get("table"), parent), 0) + 1
+    for position, vehicle in enumerate(ordered):
+        vehicle["menu_index"] = position
+        vehicle["children_count"] = children.get((vehicle.get("table"),
+                                                  vehicle.get("id")), 0)
     return {
         "vehicles": vehicles,
         "liveries": aux["liveries.csv"],
@@ -1386,6 +1430,103 @@ def save_row(payload: dict) -> dict:
         "warnings": warnings,
         "state": build_state(),
     }
+
+
+def _fleet_menu_edits(payload: dict) -> dict:
+    """{table: {vehicle id: {column: value}}} from the fleet overview's request.
+
+    A row may carry ``variant_group``, ``menu_order`` or both; a column that is
+    absent is left alone, so moving one vehicle does not have to restate the
+    grouping, and changing a grouping does not have to restate the order.
+    """
+    rows = payload.get("rows")
+    if not isinstance(rows, list) or not rows:
+        raise ValueError("没有要保存的车辆")
+    allowed = {"table", "id", "variant_group", "menu_order", "series_string"}
+    edits: Dict[str, Dict[str, Dict[str, str]]] = {}
+    for item in rows:
+        if not isinstance(item, dict):
+            raise ValueError("rows 里有一项不是对象：%r" % (item,))
+        # a misspelled key would otherwise be dropped in silence, and the author
+        # would be left wondering why nothing changed
+        unknown = set(item) - allowed
+        if unknown:
+            raise ValueError("rows 里有无法识别的键：%s（只接受 %s）"
+                             % (", ".join(sorted(unknown)), ", ".join(sorted(allowed))))
+        table = safe_table(item.get("table"))
+        if table not in VEHICLE_TABLES:
+            raise ValueError("购买菜单只能改车辆表，不能改 %s" % table)
+        vehicle = safe_id(item.get("id"))
+        entry = edits.setdefault(table, {}).setdefault(vehicle, {})
+        if "variant_group" in item:
+            parent = str(item.get("variant_group") or "").strip()
+            if parent and not ID_RE.match(parent):
+                raise ValueError(
+                    "variant_group 必须是另一台车的 id（小写字母、数字、下划线）：%r"
+                    % parent)
+            entry["variant_group"] = parent
+        if "menu_order" in item:
+            order = str(item.get("menu_order") or "").strip()
+            if order and not order.isdigit():
+                raise ValueError("menu_order 必须是非负整数：%r" % order)
+            entry["menu_order"] = order
+        if "series_string" in item:
+            series = str(item.get("series_string") or "").strip()
+            # the same rule genpnml.py reads the cell with: a group label is used
+            # verbatim as an NML string, so it has to be a real STR_ constant.
+            # Accepting LV_ here would let the workbench save something the
+            # generator refuses a moment later.
+            if series and not SERIES_STRING_RE.match(series):
+                raise ValueError(
+                    "series_string 必须是 STR_ 常量（折叠项显示的名字）：%r" % series)
+            entry["series_string"] = series
+    return edits
+
+
+def save_fleet_menu(payload: dict) -> dict:
+    """Set the purchase menu grouping and order of several vehicles at once.
+
+    The fleet overview edits more than one row per action -- moving a vehicle
+    renumbers everything after it -- so every affected table is read and checked
+    first and nothing is written unless all of them are acceptable.  The
+    grouping rules themselves are the generator's own ``check_variant_groups``,
+    so the workbench cannot accept a grouping that would fail the build.
+    """
+    edits = _fleet_menu_edits(payload)
+    prepared = {}
+    for table in sorted(edits):
+        comments, header, rows = read_table(table)
+        position = {(row.get("id") or "").strip(): index
+                    for index, row in enumerate(rows)}
+        for vehicle, entry in sorted(edits[table].items()):
+            if vehicle not in position:
+                raise FileNotFoundError("%s 中没有 id=%s" % (table, vehicle))
+            for column, value in sorted(entry.items()):
+                if column not in header:
+                    raise ValueError(
+                        "%s 里没有 %s 这一列，请先运行 tools/migrate_menu_columns.py"
+                        % (table, column))
+                rows[position[vehicle]][column] = value
+        prepared[table] = (comments, header, rows)
+
+    genpnml, failure = generator_module()
+    if genpnml is None:
+        return {"error": failure}
+    problems = []
+    for _table, (_comments, _header, rows) in sorted(prepared.items()):
+        links = {(row.get("id") or "").strip(): (row.get("variant_group") or "").strip()
+                 for row in rows}
+        problems.extend(genpnml.check_variant_groups(links)[0])
+    if problems:
+        return {"ok": False, "errors": problems}
+
+    for table in sorted(prepared):
+        check_table_unchanged(table)
+    for table in sorted(prepared):
+        comments, header, rows = prepared[table]
+        write_table(table, comments, header, rows)
+    return {"ok": True, "tables": sorted(prepared), "needs_gen": True,
+            "errors": [], "state": build_state()}
 
 
 def delete_row(payload: dict) -> dict:
@@ -1813,6 +1954,9 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
                 count = len([piece for piece in re.split(r"[|,;]", parts)
                              if piece.strip()]) or 3
                 self.send_json(render_graphics_cell(payload.get("sections"), count))
+            elif self.path == "/api/fleet-menu":
+                # the fleet overview's grouping and ordering, several rows at once
+                self.send_json(save_fleet_menu(payload))
             elif self.path == "/api/run":
                 self.send_json(start_job(str(payload.get("action") or "")))
             else:

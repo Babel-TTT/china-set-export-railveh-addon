@@ -17,5 +17,6 @@
 # See data/README.md for the column reference.
 #
 id,sprite_suffix,string,from_year,to_year,purchase_suffix,templates,graphics_parts
-df4c,korea-1,LV_DPRK,0,9999,,,
+df4c,korea-1,STR_LV_BLUEGREEN,0,9999,,,
 df4c,korea-2,STR_LV_BLUEGREEN_ALT,0,9999,,,
+df4c,korea-3,STR_LV_GREEN_W_WHITE,0,9999,,,

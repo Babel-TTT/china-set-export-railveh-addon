@@ -354,6 +354,14 @@ class Vehicle:
     train_flags: str = ""
     name_callback: bool = False
     additional_text: str = ""
+    # purchase menu presentation.  ``variant_group`` is the id of the vehicle
+    # that acts as this one's parent entry in the purchase list (empty = an entry
+    # of its own), and ``menu_order`` is where it sits in that list.
+    variant_group: str = ""
+    menu_order: int = 0
+    # the STR a group header shows for this vehicle, so the folded row and the
+    # row inside the group can read differently (see the name callback below)
+    series_string: str = ""
     liveries: List[Livery] = field(default_factory=list)
     cargo_variants: List[CargoVariant] = field(default_factory=list)
     source: str = ""
@@ -550,6 +558,22 @@ def _build_vehicle(
     if min_cars < 0:
         raise ValueError("%s: min_cars 不能为负" % vehicle_id)
 
+    menu_order = _int(row.get("menu_order", ""), 0)
+    if menu_order < 0:
+        raise ValueError("%s: menu_order 不能为负" % vehicle_id)
+    variant_group = (row.get("variant_group", "") or "").strip()
+    if variant_group and not re.fullmatch(r"[a-z][a-z0-9_]*", variant_group):
+        raise ValueError("%s: variant_group 必须是另一台车的 id（小写字母、数字、下划线）"
+                         % vehicle_id)
+    if variant_group == vehicle_id:
+        raise ValueError("%s: variant_group 不能指向自己" % vehicle_id)
+
+    series_string = (row.get("series_string", "") or "").strip()
+    if series_string and not NML_STRING_RE.match(series_string):
+        raise ValueError(
+            "%s: series_string 必须是 STR_ 常量（折叠项在菜单里显示的名字），当前 %r"
+            % (vehicle_id, series_string))
+
     vehicle = Vehicle(
         id=vehicle_id,
         name_string=row.get("name_string", "") or ("STR_NAME_" + vehicle_id.upper()),
@@ -597,6 +621,9 @@ def _build_vehicle(
         train_flags=(row.get("train_flags", "") or "").strip(),
         name_callback=_bool(row.get("name_callback", ""), category not in ("coach", "wagon", "unit_wagon")),
         additional_text=(row.get("additional_text", "") or "").strip(),
+        variant_group=variant_group,
+        menu_order=menu_order,
+        series_string=series_string,
         source=source,
     )
 
@@ -1138,7 +1165,7 @@ def render_item(vehicle: Vehicle, default_graphics: str,
     add("// Begin %s" % vid.upper())
 
     # name callback
-    if vehicle.name_callback:
+    if name_switch_name(vehicle):
         add("/* name callback: series name in the depot window */")
 
     if vehicle.visual_effect:
@@ -1205,6 +1232,12 @@ def render_item(vehicle: Vehicle, default_graphics: str,
     bitmask = _info_bitmask(vehicle)
     if bitmask:
         add("        bitmask_vehicle_info:           %s;" % bitmask)
+    if vehicle.variant_group:
+        # OpenTTD 13+ folds this vehicle under that one in the purchase list (and
+        # in the autoreplace list).  The parent has to be a real vehicle of this
+        # same set, which is why an empty cell means "an entry of its own".
+        add("        // Purchase menu group: shown under %s" % vehicle.variant_group)
+        add("        variant_group:                  %s;" % vehicle.variant_group)
     add("    }")
     add("    graphics {")
 
@@ -1212,8 +1245,8 @@ def render_item(vehicle: Vehicle, default_graphics: str,
     add("        // Menu")
     if vehicle.additional_text:
         add("        additional_text:                string(%s);" % vehicle.additional_text)
-    if vehicle.name_callback:
-        add("        name:                           switch_name_series;")
+    if name_switch_name(vehicle):
+        add("        name:                           %s;" % name_switch_name(vehicle))
     if len(vehicle.liveries) > 1:
         add("        cargo_subtype_text:             switch_%s_cargo_subtype;" % vid)
     add("        can_attach_wagon:               %s;" % _attach_switch(vehicle))
@@ -2450,6 +2483,44 @@ def vehicle_file_path(vehicle: Vehicle, out_dir: str) -> str:
     return os.path.join(out_dir, vehicle.folder, "%s.pnml" % vehicle.id)
 
 
+def name_switch_name(vehicle: Vehicle) -> str:
+    """The switch the ``name:`` callback should use, or "" for none.
+
+    A vehicle that heads a purchase menu group needs a switch of its own, because
+    the folded row and the row inside the group have to read differently: the
+    group row shows the series ("DF4 series"), the row inside the group shows the
+    individual model.  That is what the parent set does, and it is the only way
+    to tell the two levels apart when one vehicle is both.
+
+    Everything else shares the set wide ``switch_name_series`` in functions.pnml,
+    which prepends the series name to the vehicle's own name.
+    """
+    if vehicle.series_string:
+        return "switch_%s_name" % vehicle.id
+    if vehicle.name_callback:
+        return "switch_name_series"
+    return ""
+
+
+def emit_name_switch(switches: "Emitter", vehicle: Vehicle) -> None:
+    """Emit the per-vehicle name callback when the row asks for a series string.
+
+    The selector mirrors the parent set exactly: OpenTTD asks the callback for a
+    particular text slot, and slot 0 is the one the purchase menu uses for the
+    group header.  Anything else gets ``CB_RESULT_NO_TEXT``, which leaves the
+    vehicle's own ``name`` property in charge -- so the same vehicle reads as the
+    series in the collapsed row and as its own name inside the group.
+    """
+    if not vehicle.series_string:
+        return
+    switches.switch(
+        "switch_%s_name" % vehicle.id,
+        "getbits(extra_callback_info1, 0, 8) == 0x20? getbits(extra_callback_info1, 8, 8) : 0xFFFF",
+        [("0", "return string(%s)" % vehicle.series_string)],
+        "return CB_RESULT_NO_TEXT",
+    )
+
+
 def render_vehicle_file(vehicle: Vehicle) -> str:
     """Assemble the PNML of a single vehicle.
 
@@ -2466,6 +2537,7 @@ def render_vehicle_file(vehicle: Vehicle) -> str:
     emit_livery_callbacks(switches, [vehicle])
     emit_articulated_callbacks(switches, [vehicle])
     emit_length_switch(switches, vehicle)
+    emit_name_switch(switches, vehicle)
 
     emit_vehicle(sprites, switches, items, vehicle)
 
@@ -2542,18 +2614,37 @@ def render_vehicleid(vehicles: Sequence[Vehicle], ids: Dict[str, int]) -> str:
     return "\n".join(lines)
 
 
+def purchase_order(vehicles: Sequence[Vehicle]) -> List[Vehicle]:
+    """The vehicles in purchase menu order.
+
+    ``menu_order`` is the position the author asked for; a vehicle that leaves it
+    empty sorts after every vehicle that sets it, keeping the table order among
+    themselves -- which is what appending a row to a table has always done.  The
+    index is the tie breaker so the result is stable and does not depend on the
+    sort being stable.
+
+    This is deliberately *not* the order IDs are assigned in: ``assign_ids``
+    walks the load order, so reordering the menu must never move an engine ID.
+    """
+    return [vehicle for _index, vehicle in sorted(
+        enumerate(vehicles),
+        key=lambda item: (item[1].menu_order if item[1].menu_order > 0 else 10 ** 6,
+                          item[0]))]
+
+
 def render_vehiclesort(vehicles: Sequence[Vehicle], ids: Dict[str, int]) -> str:
     lines = [GENERATED_HEADER.format(
         title="src/vehiclesort.pnml -- generated purchase menu order").rstrip("\n"), ""]
     lines.append("//Order of the tables in data/: locomotives, coaches, wagons, unit wagons.")
-    lines.append("//Within a table the order is the row order of the CSV file.")
+    lines.append("//Within a table the order is the row order of the CSV file, unless the")
+    lines.append("//row sets menu_order; rows without one come last, in table order.")
     lines.append("")
     lines.append("sort (FEAT_TRAINS, [")
     last_category = None
-    for vehicle in vehicles:
+    for position, vehicle in enumerate(purchase_order(vehicles)):
         if vehicle.category != last_category:
             last_category = vehicle.category
-            if vehicle is not vehicles[0]:
+            if position:
                 lines.append("")
             lines.append("    // %s" % CATEGORY_LABEL.get(vehicle.category, vehicle.category))
         lines.append("    %s," % vehicle.id)
@@ -2829,15 +2920,18 @@ def collect_referenced_strings(vehicles: Sequence[Vehicle]) -> set:
     """Every STR_ constant the generated code and the hand written files use."""
     referenced = set()
 
-    # src/header.pnml and the shared library files
+    # src/header.pnml and the shared library files.  Generated vehicle files live
+    # in a folder per vehicle, so this has to walk the tree rather than list one
+    # directory: a file in a subfolder would otherwise be invisible here.
     src_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "src")
     if os.path.isdir(src_dir):
-        for name in sorted(os.listdir(src_dir)):
-            if not name.endswith(".pnml"):
-                continue
-            with open(os.path.join(src_dir, name), "r", encoding="utf-8") as handle:
-                text = handle.read()
-            referenced.update(re.findall(r"\b(STR_[A-Z0-9_]+)\b", text))
+        for folder, _dirs, names in sorted(os.walk(src_dir)):
+            for name in sorted(names):
+                if not name.endswith(".pnml"):
+                    continue
+                with open(os.path.join(folder, name), "r", encoding="utf-8") as handle:
+                    text = handle.read()
+                referenced.update(re.findall(r"\b(STR_[A-Z0-9_]+)\b", text))
 
     # everything the generator emits
     for vehicle in vehicles:
@@ -2850,6 +2944,11 @@ def collect_referenced_strings(vehicles: Sequence[Vehicle]) -> set:
         for constant in re.findall(r"\b(STR_[A-Z0-9_]+)\b",
                                    vehicle.additional_text or ""):
             referenced.add(constant)
+        # the series a group header shows.  It is written by hand like a livery
+        # label, so --check has to know the row needs it: without this the first
+        # complaint would come from nmlc, as "Unknown string".
+        if vehicle.series_string:
+            referenced.add(vehicle.series_string)
     for constant, _, _ in STATIC_STRINGS:
         referenced.add(constant)
     return referenced
@@ -2877,6 +2976,92 @@ def check_strings(vehicles: Sequence[Vehicle], path: str) -> int:
 NML_STRING_RE = re.compile(r'^(?:STR_[A-Z0-9_]+|"[^"]*"|\{[^}]*\})$')
 
 
+def check_variant_groups(links: Dict[str, str]):
+    """Problems with ``{vehicle id: parent id}`` for one table.
+
+    The NewGRF property takes a vehicle ID, so a typo does not fail to compile --
+    it silently drops the vehicle from the menu, because OpenTTD cannot resolve a
+    parent that does not exist.  That is worth a hard error, hence: the parent
+    exists, it is not the vehicle itself, and the links do not form a cycle.
+
+    This is the one place the rule is written, so the workbench and the generator
+    cannot disagree about whether a grouping is acceptable.
+
+    Returns ``(problems, broken)``, where ``broken`` holds the vehicles that have
+    a problem -- the caller uses it to avoid piling a second complaint on them.
+    """
+    problems: List[str] = []
+    broken = set()
+    for vehicle, parent in sorted(links.items()):
+        if not parent:
+            continue
+        if parent not in links:
+            problems.append(
+                "%s: variant_group 指向 %s，但同一张表里没有这台车"
+                "（父项必须是同一张表里的另一台车）" % (vehicle, parent))
+            broken.add(vehicle)
+            continue
+        if parent == vehicle:
+            problems.append("%s: variant_group 不能指向自己" % vehicle)
+            broken.add(vehicle)
+            continue
+        # walk up to the root; meeting a node twice means the menu cannot be built
+        seen = [vehicle, parent]
+        node = links.get(parent, "")
+        while node:
+            if node in seen:
+                problems.append("%s: variant_group 形成了环（%s）"
+                                % (vehicle, " -> ".join(seen + [node])))
+                broken.add(vehicle)
+                break
+            seen.append(node)
+            node = links.get(node, "")
+    return problems, broken
+
+
+def _variant_links(vehicles: Sequence[Vehicle]) -> Dict[str, Dict[str, str]]:
+    """{source table: {vehicle id: parent id}} for every vehicle."""
+    by_table: Dict[str, Dict[str, str]] = {}
+    for vehicle in vehicles:
+        by_table.setdefault(vehicle.source, {})[vehicle.id] = \
+            (vehicle.variant_group or "").strip()
+    return by_table
+
+
+def variant_group_warnings(vehicles: Sequence[Vehicle]) -> List[str]:
+    """Warn about groupings that work but are more than the feature promises.
+
+    Nesting is allowed and is marked experimental upstream, so a parent that is
+    itself in a group is reported rather than refused.  A vehicle with a real
+    problem is skipped: saying "and the nesting is odd too" about a cycle only
+    buries the message that matters.
+    """
+    warnings: List[str] = []
+    for _source, links in sorted(_variant_links(vehicles).items()):
+        _problems, broken = check_variant_groups(links)
+        for vehicle, parent in sorted(links.items()):
+            if not parent or vehicle in broken:
+                continue
+            grandparent = (links.get(parent) or "").strip()
+            if grandparent:
+                warnings.append(
+                    "%s: 父项 %s 自己也分在 %s 下，菜单里会出现两层折叠；"
+                    "上游把嵌套标为实验性，建议只用一层"
+                    % (vehicle, parent, grandparent))
+    return warnings
+
+
+def validate_variant_groups(vehicles: Sequence[Vehicle]):
+    """Check the purchase menu grouping of every table.
+
+    Returns ``(problems, warnings)``, like validate_vehicles().
+    """
+    problems: List[str] = []
+    for _source, links in sorted(_variant_links(vehicles).items()):
+        problems.extend(check_variant_groups(links)[0])
+    return problems, variant_group_warnings(vehicles)
+
+
 def validate_vehicles(vehicles: Sequence[Vehicle]):
     """Cheap sanity checks that keep malformed tables out of the compiler.
 
@@ -2890,6 +3075,9 @@ def validate_vehicles(vehicles: Sequence[Vehicle]):
     """
     problems: List[str] = []
     warnings: List[str] = []
+    group_problems, group_warnings = validate_variant_groups(vehicles)
+    problems.extend(group_problems)
+    warnings.extend(group_warnings)
     for vehicle in vehicles:
         raw = (vehicle.name_string or "").strip()
         if raw.startswith("STR_") or raw.startswith('"'):

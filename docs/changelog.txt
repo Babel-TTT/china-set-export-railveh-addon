@@ -549,3 +549,66 @@ report it as missing and drop its vehicles; change over before relying on a save
 Version bumps do **not** need an ID change -- the version travels in Action 14
 (`version: REPO_REVISION`, generated from git), which is exactly why the ID has to
 stay stable.
+
+### Added — the purchase menu can be grouped and ordered
+
+OpenTTD 13's *vehicle variants in expandable purchase list* (`variant_group`, the
+NML property of the same name) is wired up, and the purchase menu order is data
+now instead of an accident of the row order:
+
+- Three new columns in all four vehicle tables, just before `comment`:
+  **`variant_group`** (the **id** of the vehicle this row folds under, empty for
+  an entry of its own), **`menu_order`** (the position in the purchase menu,
+  empty sorting last) and **`series_string`** (the `STR_` the folded row shows).
+  The vehicle tables are **49 columns** now.
+  `tools/migrate_menu_columns.py` adds only the columns a table is missing, so it
+  is safe to run again.
+
+- `variant_group` names another vehicle **by id**, not by engine number, and
+  reaches the item's `property` block verbatim; NML resolves the identifier to
+  the ID itself, so a grouping survives any change in how IDs are handed out.
+  It is **per vehicle, not per livery**: two paint schemes of one vehicle are
+  chosen inside the refit menu (`cargo_subtype`) and can never become two
+  purchase menu entries.
+
+- The order is a column rather than a reordered row because `assign_ids()` walks
+  the tables in row order: dragging a row past another changes which engine ID a
+  vehicle gets, and engine IDs are what a savegame stores.  The generator sorts
+  on `(menu_order or +infinity, table and row index)` and writes
+  `src/vehiclesort.pnml` from that, leaving the row order -- and every engine
+  ID -- alone.  An empty cell sorts after every row that sets one, in table
+  order.
+
+- A vehicle that sets `series_string` gets a name switch of its own
+  (`switch_<id>_name`), using the same selector as China Set: Trains.  Slot 0
+  answers with the series string and every other slot with `CB_RESULT_NO_TEXT`,
+  so the collapsed row reads as the series while the row inside the group keeps
+  the vehicle's own `name` property.  A vehicle without one keeps sharing
+  `switch_name_series` from `src/functions.pnml`.
+
+- `genpnml.check_variant_groups()` validates the grouping: the parent must exist
+  **in the same table**, must not be the vehicle itself, and the links must not
+  form a cycle.  A parent that is itself grouped is a **warning** rather than an
+  error, because nesting works but is experimental upstream.  The workbench
+  calls the same function, so it cannot accept a grouping the build would
+  refuse.
+
+- `series_string` joined `collect_referenced_strings()`, so `--check` reports a
+  constant that is not in `docs/str.csv` as `MISSING` instead of leaving nmlc to
+  answer `Unknown string`.  That scan walks `src/` recursively, which is where
+  the generated per vehicle files live (`src/<folder>/<id>.pnml`).
+
+- The workbench's 车队总览 is now shown in purchase menu order, and each card
+  edits the three columns: ▲/▼ move the vehicle in that order (renumbering the
+  whole list in tens, so a later insert fits between two rows), 折叠到 lists the
+  legal parents (same table, never the vehicle itself, never one of its own
+  descendants) and 折叠项名称 takes the series constant, flagging an unknown one
+  as 「字符串不存在」.  Everything saves through `POST /api/fleet-menu`
+  (`{"rows": [{"table", "id", "variant_group", "menu_order", "series_string"}]}`):
+  a key that is absent is left alone, an unknown key is refused, and every
+  affected table is validated before any of them is written.
+
+- `tools/check_variant_menu.py` creates a temporary second locomotive, folds it
+  under `df4c`, builds the whole GRF and checks the grouping, the name callback,
+  the two different names and the sort order, then restores the tables.
+

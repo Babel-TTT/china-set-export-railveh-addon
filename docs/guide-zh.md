@@ -3,7 +3,7 @@
 本文是《中国包：出口铁路载具附加包》的完整操作手册。
 如果你只想**加一辆车**，直接看[第 4 章](#4-加一辆新车完整流程)；
 想**画模型**看[第 5 章](#5-制作模型vox)；
-**出错**看[第 8 章](#8-疑难排查)。
+**出错**看[第 10 章](#10-疑难排查)。
 
 ---
 
@@ -16,9 +16,10 @@
 5. [制作模型（.vox）](#5-制作模型vox)
 6. [加涂装与货物外观](#6-加涂装与货物外观)
 7. [分节图像规则怎么填](#7-分节图像规则怎么填)
-8. [校核实车数据](#8-校核实车数据)
-9. [疑难排查](#9-疑难排查)
-10. [命令速查](#10-命令速查)
+8. [购买菜单：分组与排序](#8-购买菜单分组与排序)
+9. [校核实车数据](#9-校核实车数据)
+10. [疑难排查](#10-疑难排查)
+11. [命令速查](#11-命令速查)
 
 ---
 
@@ -302,6 +303,9 @@ python3 tools/vehicle_row.py add data/wagons.csv \
 | `comment` | `... (estimate)` | 仅给人看，生成器忽略 |
 
 > **不要写车辆 ID、不要写 sprite_id、不要写开关名。** 这些都由生成器算出来。
+>
+> **购买菜单里的分组与顺序**由最后三列（`variant_group`、`menu_order`、
+> `series_string`）决定，见[第 8 章](#8-购买菜单分组与排序)。
 
 ### 步骤 2：生成
 
@@ -328,7 +332,7 @@ genpnml: 73 vehicles -> 76 files (0 removed), 111 voxel models
 1. 在 `src/vehicleid.pnml` 的 `diesel` 区段分配一个空闲 ID（本例 `5151`）；
 2. 新建 `src/diesel/ckd8w.pnml`，内含这辆车的全部 switch / spriteset / item；
 3. 在 `src/vehiclefiles.pnml` 的对应位置插入它的 `#include`；
-4. 在 `src/vehiclesort.pnml` 里把它排在机车表的位置；
+4. 在 `src/vehiclesort.pnml` 里按 `menu_order` 排好购买菜单顺序（没设的车按表序排在最后）；
 5. 在 `docs/str.csv` 补上 `STR_NAME_CKD8W`、`STR_FULL_NAME_CKD8W`；
 6. 生成器会告诉你 `gfx/diesel/ckd8w.vox` 还没有，把它画好放进去。
 
@@ -880,7 +884,116 @@ python3 tools/check_graphics_parts.py
 
 ---
 
-## 8. 校核实车数据
+## 8. 购买菜单：分组与排序
+
+车库里的购买列表是一张平铺的车表，数据表里**每一行就是一条**。有三列专门管这台车
+在列表里怎么出现——它们就在四张车辆表 `comment` 前面的最后三列：
+
+| 列 | 说明 |
+| -- | ---- |
+| `variant_group` | 这台车**折叠到哪台车下面**，填对方的 **id**（如 `df4c`），不是引擎编号。这一列就是 OpenTTD 13 的「可展开购买列表里的车辆变体」（NML 的 `variant_group` 属性），自动替换菜单用的是同一套分组。留空 = 自己独立一条 |
+| `menu_order` | 在购买菜单里的位置，非负整数。**留空（或写 0）的车排在所有设了顺序的车之后**，并按表格行序排列 |
+| `series_string` | 折叠起来那一级显示的名字，填 `docs/str.csv` 里已有的 `STR_` 常量；留空 = 用共享的系列名 |
+
+老工程（或表里还没这三列时）补列：
+
+```bash
+python3 tools/migrate_menu_columns.py     # 只补缺的列，可以重复运行
+```
+
+> **这是每台车的属性，不是每种涂装的属性。** 同一台车的两种涂装是在**改装菜单**
+> （`cargo_subtype`）里选的，永远不会变成购买列表里的两条，也就没有东西可以折叠。
+
+### 8.1 为什么顺序是一列，而不是把表格行拖来拖去
+
+靠「把表格行排好」来决定菜单顺序是行不通的：`assign_ids()` 按**行序**走完四张表，
+在各自类别的 ID 区段里依次发号，所以把一行拖到另一行前面，会改变这台车拿到的
+**引擎 ID**——而存档记的正是引擎 ID，重排一行就会让存档里的车对不上号。
+
+所以顺序单独占一列：生成器按 `menu_order` 排序（留空的车当作无穷大排在最后，
+再按表与行的序号定序），把结果写成 `src/vehiclesort.pnml` 里的
+`sort (FEAT_TRAINS, [...])`。行序完全不动，引擎 ID 也就不动。
+
+### 8.2 两级名字：折叠行与组内行
+
+一台车同时是「组头」和「组里的一项」时，两个位置要显示不同的文字：**折叠起来的那
+一行显示系列名，展开后组里的那一行显示这台车自己的名字**。
+
+生成器因此给设了 `series_string` 的车**单独写一个名字回调**（`switch_<id>_name`），
+没设的车继续共用 `src/functions.pnml` 里的 `switch_name_series`：
+
+```nml
+item (FEAT_TRAINS, df4c) {
+    property {
+        name:                           string(STR_NAME_DF4C);
+    }
+    graphics {
+        name:                           switch_df4c_name;
+    }
+}
+
+switch (FEAT_TRAINS, SELF, switch_df4c_name, getbits(extra_callback_info1, 0, 8) == 0x20? getbits(extra_callback_info1, 8, 8) : 0xFFFF) {
+    0: return string(STR_EXPORT_SERIES);
+    return CB_RESULT_NO_TEXT;
+}
+```
+
+购买菜单问「折叠项叫什么」时用的就是 0 号槽；其他槽一律回 `CB_RESULT_NO_TEXT`，
+也就是「不额外给文字」，于是仍然由 `property` 里的 `name` 说了算。这样同一个 `id`
+在折叠行读作系列名，在组里读作自己的车名。写法与《中国包：火车》的
+`switch_<vehicle>_name` 一致。
+
+### 8.3 生成器接受的写法
+
+分组规则只写在一个地方（`genpnml.check_variant_groups()`），工作台调用的也是它，
+所以两边不会各说各话：
+
+* **父项必须在同一张表里**：机车和货车永远不会共用一个购买列表，跨表折叠会直接报
+  「同一张表里没有这台车」；
+* **不能指向自己**：一台车要让别的车折在自己下面，它自己的 `variant_group` 就得
+  留空。写自己会被拒绝：`variant_group 不能指向自己`；
+* **不能成环**：`a→b→a` 这种链接会被报出来（`variant_group 形成了环`）；
+* **父项自己也分组了只是警告**：嵌套能用，但上游把它标为实验性，本包的约定是
+  **只用一层**，所以生成器提醒而不阻止。
+
+`series_string` 必须是**字符串表里已经有的** `STR_` 常量。它已经进了
+`collect_referenced_strings()`，所以 `genpnml.py --check` 会把它当普通引用查，
+缺了直接报 `MISSING`，而不是等到 nmlc 报 `Unknown string`。
+
+### 8.4 在工作台的「车队总览」里改
+
+> **工作台 → 车队总览（阶段 1）**
+
+车队总览就是按**购买菜单顺序**排的，每张卡片上带这三列的控件：
+
+| 控件 | 作用 |
+| ---- | ---- |
+| `顺序 N / M` + `▲` `▼` | 在购买菜单里上移 / 下移一位。它会**把整份名单的 `menu_order` 按 10 递重重排**（10、20、30…），所以以后想插到两行之间还有空位 |
+| `折叠到` 下拉框 | 合法的父项：**同一张表**、不是自己、也不是自己的后代（否则会成环）。第一项「独立一条」= 清空 `variant_group` |
+| `折叠项名称` 输入框 | `series_string`。常量不在字符串表里时旁边会标红「字符串不存在」 |
+
+卡片上还有两个提示标签：「N 个变体折在这里」表示有别的车折在它下面；「自己也折叠了」
+表示这台车自己又折在别人下面——就是 8.3 里那个**嵌套警告**。
+
+每次改动都走 `POST /api/fleet-menu`，请求体是
+`{"rows":[{"table","id","variant_group","menu_order","series_string"}]}`：
+**没带的键保持原样**（所以拖顺序不必重发分组），**带了不认识的键会被拒绝**，改到的
+每张表**先全部校验通过才落盘**。存完记得跑一次「生成车辆代码」或 `make gen`，
+让 `src/vehiclesort.pnml` 与名字回调跟上。
+
+### 8.5 一次端到端校验
+
+```bash
+python3 tools/check_variant_menu.py
+```
+
+它临时造出一台机车（`df4ctest`）、折到 `df4c` 下面，然后**完整编译一遍 GRF**，检查分组、
+名字回调、两级名字和排序，最后把数据表恢复原样。想自己确认时，这是唯一一个把三列
+放在一起跑的检查。
+
+---
+
+## 9. 校核实车数据
 
 `data/*.csv` 中的性能参数目前是**合理工程估算值**，每行 `comment` 都标了
 `(estimate)`。要改成真实数据：
@@ -915,9 +1028,9 @@ python3 tools/check_graphics_parts.py
 
 ---
 
-## 9. 疑难排查
+## 10. 疑难排查
 
-### 9.1 构建类
+### 10.1 构建类
 
 | 现象 | 原因与处理 |
 | ---- | ---------- |
@@ -930,7 +1043,7 @@ python3 tools/check_graphics_parts.py
 | `make` 报 `git: ambiguous argument` | `min_compatible_version` 里不是有效的 git 提交号。写一个存在的提交号，或写 `git rev-parse HEAD` 的输出 |
 | `make` 报 `*** missing separator` | `Makefile` 的缩进被编辑器换成了空格。**recipe 行必须是 Tab** |
 
-### 9.2 生成器类
+### 10.2 生成器类
 
 | 现象 | 原因与处理 |
 | ---- | ---------- |
@@ -945,7 +1058,7 @@ python3 tools/check_graphics_parts.py
 | `make check` 报 `unused` | 语言表里有死字符串。可以删掉，或说明你还在用它（无害） |
 | 生成的某辆车没有货物外观开关 | `cargo_variants.csv` 的 `id` 与 `wagons.csv` 对不上，或该行 `sprite_suffix` 为空（空表示"空车"，不生成精灵） |
 
-### 9.3 游戏内类
+### 10.3 游戏内类
 
 | 现象 | 原因与处理 |
 | ---- | ---------- |
@@ -958,7 +1071,7 @@ python3 tools/check_graphics_parts.py
 | 某项规则/参数好像按段生效了 | 只有 `cargo_capacity` 是 OpenTTD 按段读取的。功率、重量、速度写成整车普通属性，**不按段下发** |
 | 车体浮在轨道上方/陷进去 | 换 `template_speciel_0`（偏低）或 `template_speciel_1`（偏高） |
 
-### 9.4 想从头重建
+### 10.4 想从头重建
 
 ```bash
 make clean              # 删除 grf/nml/custom_tags 与所有渲染 PNG
@@ -970,7 +1083,7 @@ make -j 8               # 完全重建
 
 ---
 
-## 10. 命令速查
+## 11. 命令速查
 
 ```bash
 # ---------- 构建 ----------
@@ -1018,7 +1131,7 @@ nmlc -c out.nml -o out.grf
 
 ---
 
-## 11. 进一步阅读
+## 12. 进一步阅读
 
 | 文档 | 内容 |
 | ---- | ---- |

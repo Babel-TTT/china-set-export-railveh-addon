@@ -87,7 +87,7 @@ chinasettrainsexport.pnml ──gcc -E──> chinasettrainsexport.nml ──nml
 ## Workbench
 
 `make workbench` serves a local visual workbench at
-<http://127.0.0.1:4174/workbench/>: a fleet ledger, the 46 column vehicle form,
+<http://127.0.0.1:4174/workbench/>: a fleet ledger, the 49 column vehicle tables,
 livery and freight appearance tables, cropped previews of the rendered sprites,
 the string and asset consistency checks, and the GRF build with live output.
 It edits `data/` with the same validation the generator applies and never
