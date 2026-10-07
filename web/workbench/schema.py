@@ -123,7 +123,7 @@ VEHICLE_FIELDS: List[tuple] = [
         "help": "single = 整节一体；triple = 由铰接回调重复的前-身-后三段结构。"}),
     ("parts", "identity", "list", "分段长度", {
         "default": "2|8|2", "placeholder": "2|8|2",
-        "help": "用 | 分隔的段长，例如 2|8|2。model=single 时只用第一个值。"}),
+        "help": "段长，例如 2|8|2；| , ; 都可以作分隔符。model=single 时只用第一个值。"}),
     ("power_section", "identity", "int", "动力段索引", {
         "default": "1", "min": 0,
         "help": "承载车体图形、功率与载量的段序号（从 0 开始），triple 结构通常是 1。"}),

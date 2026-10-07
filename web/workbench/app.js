@@ -146,15 +146,18 @@
       control = `<textarea id="${id}" data-field="${esc(field.name)}"
         placeholder="${esc(field.placeholder)}">${esc(value)}</textarea>`;
     } else if (field.kind === 'toggle') {
+      // genpnml.py's _bool() treats 1/y/yes/true/t/on as true and anything
+      // else as false, so offer the readable spellings as well.
+      const truthy = ['0', '1', 'yes', 'true', 'no', 'off'];
+      const options = [`<option value=""${value === '' ? ' selected' : ''}>（留空 / 用默认）</option>`]
+        .concat(truthy.map((choice) =>
+          `<option value="${choice}"${choice === value ? ' selected' : ''}>${choice}</option>`));
+      if (value && !truthy.includes(value)) {
+        options.push(`<option value="${esc(value)}" selected>${esc(value)}</option>`);
+      }
       return `<div class="field toggle${wide ? ' field-wide' : ''}">
         <label for="${id}">${esc(field.label)}</label>
-        <div class="box">
-          <select id="${id}" data-field="${esc(field.name)}">
-            <option value=""${value === '' ? ' selected' : ''}>（留空 / 默认）</option>
-            <option value="0"${value === '0' ? ' selected' : ''}>0 · 关闭</option>
-            <option value="1"${value === '1' ? ' selected' : ''}>1 · 开启</option>
-          </select>
-        </div>
+        <div class="box"><select id="${id}" data-field="${esc(field.name)}">${options.join('')}</select></div>
         ${field.help ? `<div class="help">${esc(field.help)}</div>` : ''}
       </div>`;
     } else {
