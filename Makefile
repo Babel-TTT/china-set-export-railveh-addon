@@ -47,7 +47,7 @@ REPO_REVISION       := $(shell git rev-list --count HEAD || echo 1000)
 # the file min_compatible_version should either contain a commit hash or a tag
 MIN_COMPATIBLE_VERSION := $(shell git rev-list --count $$(cat min_compatible_version) || echo 0)
 
-.PHONY: all gen check sprites lang custom_tags code clean clean_grf clean_png clean_gen bundle FORCE
+.PHONY: all gen check sprites lang custom_tags code clean clean_grf clean_png clean_gen bundle workbench FORCE
 
 # default rule
 all: gen sprites lang code
@@ -126,6 +126,11 @@ bundle: code FORCE
 	@cp $(OUTPUT_GRF) docs/
 	@cd docs && tar -cf ../$(PROJECT)-$(REPO_VERSION_STRING).tar $(DOC_FILES) $(OUTPUT_GRF)
 	@rm docs/$(OUTPUT_GRF)
+
+# local web workbench: http://127.0.0.1:4174/workbench/
+# it shells out to the targets above, so it needs nothing but Python 3
+workbench: FORCE
+	@$(PYTHON) web/workbench/server.py
 
 # dummy rule for force rebuilding
 FORCE: ;

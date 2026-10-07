@@ -68,6 +68,25 @@ VARIANTS = [
 
 VEHICLE_TABLES = ("locomotives.csv", "coaches.csv", "wagons.csv", "unit_wagons.csv")
 
+# The authoritative column order of the four vehicle tables.  This script never
+# writes them, but the list is kept here so that the schema can be checked
+# against the real files (see tools/check_data_schema.py).  Every column is read
+# by genpnml.py -- in particular `capacity_by_cargo` and `train_flags` used to be
+# missing from the header, so the generator silently never saw them.
+VEHICLE_COLUMNS = (
+    "id", "name_string", "category", "folder", "model", "parts", "power_section",
+    "intro_year", "intro_month", "intro_day", "model_life", "retire_early",
+    "vehicle_life", "track_type", "climates_available", "speed", "power",
+    "power_unit", "weight", "tractive_effort_coefficient", "cost_factor",
+    "running_cost_factor", "purchase_running_cost_factor", "purchase_cost_display",
+    "reliability_decay", "purchase_speed", "purchase_power",
+    "refittable_cargo_classes", "non_refittable_cargo_classes", "cargo_allow_refit",
+    "cargo_disallow_refit", "default_cargo_type", "ai_special_flag", "capacity",
+    "capacity_by_cargo", "loading_speed", "cargo_age_period", "train_flags",
+    "ac_supply", "airconditioned", "restaurant", "mu", "name_callback",
+    "wagon_decay", "additional_text", "comment",
+)
+
 
 def write_liveries(path):
     with open(path, "w", encoding="utf-8", newline="\n") as handle:

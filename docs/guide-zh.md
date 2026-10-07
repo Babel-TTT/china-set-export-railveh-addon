@@ -184,8 +184,15 @@ china-set-export-railveh-addon/
 └── tools/
     ├── vehicle_row.py            ★ 安全地增删/复制数据行（自动处理 CSV 引号）
     ├── clear_vehicle_data.py     ★ 清空全部车辆数据与占位模型
-    ├── build_data_tables.py      重新生成 data/*.csv（保证引号正确）
+    ├── build_data_tables.py      只重建 liveries.csv 与 cargo_variants.csv
     └── verify_assets.py          校验：PNML 引用的精灵是否都存在
+
+web/
+└── workbench/                    可视化工作台（make workbench）
+    ├── server.py                 纯标准库 HTTP 服务，转发给上面的工具
+    ├── schema.py                 ★ 列元数据，前端表单由它生成
+    ├── index.html app.js style.css
+    └── README.md                 工作台说明
 ```
 
 ★ = 可以手工编辑；⚙ = **每次 `make gen` 都会被覆盖，不要手改**。
@@ -415,11 +422,15 @@ PNML 里 `template_standard ("<目录>", "<基名>")` 会从 `_32bpp.png` 里按
 make sprites
 ```
 
-   然后打开 `gfx/<目录>/<基名>_32bpp.png` 目视检查——它应当是一张宽 992 px 的
-   长条图，8 个视角从左到右排列。**如果车头朝向不对、或车体偏上偏下**，
-   在同一张图里就能看出来。
+   然后打开 `gfx/<目录>/<基名>_32bpp.png` 目视检查——它是一张长条图，8 个视角
+   从左到右排列，**每个视角宽度不同**（正面 36 px、斜面 120 px、侧面 192 px），
+   每格右侧带 8 px 透明内边距，所以整张图的宽度不是固定的 992 px 而是它们的
+   总和。**如果车头朝向不对、或车体偏上偏下**，在同一张图里就能看出来。
 
-6. 位置微调：如果车体相对轨道偏高/偏低，把 `src/usercode.pnml` 里该车用的
+   要看裁剪后的单个视角，用工作台的「模型与精灵图」阶段，它按
+   `manifest.json` 里的真实坐标切图，而不是等分网格。
+
+6. 位置微调：如果车体相对轨道偏高/偏低，把 `src/<目录>/<id>.pnml` 里该车用的
    模板换掉即可——但该文件是生成物，正确做法是在 `data/liveries.csv` 的
    `templates` 列指定，例如 `template_speciel_1`。
    可用模板见 `src/template.pnml`：
@@ -633,9 +644,13 @@ python3 tools/vehicle_row.py add   <表> id=… key=value …            # 新�
 python3 tools/vehicle_row.py remove <表> <id> [--prune]             # 删除一行
 python3 tools/clear_vehicle_data.py            # 试运行：清空全部车辆数据
 python3 tools/clear_vehicle_data.py --apply    # 真的清空（含占位模型）
-python3 tools/build_data_tables.py   # 重新生成 data/*.csv（保证 CSV 引号正确）
+python3 tools/build_data_tables.py   # 只重建 liveries.csv 与 cargo_variants.csv
 python3 tools/verify_assets.py       # 校验 PNML 引用的精灵是否都存在
 python3 str-csv.py docs/str.csv      # docs/str.csv → lang/*.lng
+
+# ---------- 可视化工作台 ----------
+make workbench                       # 启动后打开 http://127.0.0.1:4174/workbench/
+python3 web/workbench/server.py --port 4174   # 等价写法
 
 # ---------- 只想快速检查语法 ----------
 gcc -E -x c chinasettrainsexport.pnml -D REPO_REVISION=1 \

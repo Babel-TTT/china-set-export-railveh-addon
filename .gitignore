@@ -16,3 +16,9 @@ gfx/**/*.png
 # The generated .pnml files themselves ARE tracked, so that a checkout without
 # python can still be compiled and so that diffs of generated code are visible.
 src/.genpnml-manifest
+
+# web workbench scratch files
+gfx/.workbench-sprites.json
+data/*.csv.workbench.bak
+data/*.csv.workbench.tmp
+web/workbench/__pycache__/

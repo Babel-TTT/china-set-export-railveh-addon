@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>中国包出口铁路载具 · 制作工作台</title>
+  <link rel="stylesheet" href="/workbench/style.css">
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <h1>中国包：出口铁路载具附加包</h1>
+      <div class="subtitle">数据驱动 · 单车 PNML · 体素渲染 · NML 编译</div>
+    </div>
+    <div class="toolbar">
+      <span class="pill" id="repoRev">…</span>
+      <button id="newVehicle">新建车辆</button>
+      <button id="refreshAll">重新读取</button>
+      <button class="primary" id="quickGen">生成代码</button>
+      <button class="warn" id="quickBuild">编译 GRF</button>
+    </div>
+  </header>
+
+  <main>
+    <aside class="left">
+      <section class="section">
+        <div class="section-title">流程</div>
+        <div class="stage-nav" id="stageNav">
+          <button data-stage="fleet" class="active"><b>1</b><span>车队账本</span></button>
+          <button data-stage="detail"><b>2</b><span>车辆明细</span></button>
+          <button data-stage="livery"><b>3</b><span>涂装方案</span></button>
+          <button data-stage="variant"><b>4</b><span>货运外观</span></button>
+          <button data-stage="sprite"><b>5</b><span>模型与精灵图</span></button>
+          <button data-stage="check"><b>6</b><span>一致性检查</span></button>
+          <button data-stage="build"><b>7</b><span>构建 GRF</span></button>
+          <button data-stage="guide"><b>8</b><span>指南</span></button>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="section-title">状态</div>
+        <div class="status" id="status">正在读取仓库…</div>
+        <dl class="metrics" id="counts"></dl>
+      </section>
+
+      <section class="section">
+        <div class="section-title">确定性操作</div>
+        <div class="actions">
+          <button data-action="gen">生成车辆代码（含占位模型）</button>
+          <button data-action="vox">只写占位模型</button>
+          <button data-action="render">渲染精灵图</button>
+          <button data-action="check">一致性检查</button>
+          <button class="warn" data-action="build">编译 GRF</button>
+          <button data-action="clean_gen">清除生成的 PNML</button>
+        </div>
+        <p class="hint">所有操作都调用仓库里已有的 Python 工具与 Makefile，工作台不重新实现任何生成逻辑。</p>
+      </section>
+    </aside>
+
+    <section class="stage">
+      <div class="stage-header">
+        <h2 id="stageTitle">车队账本</h2>
+        <span id="stageDescription">全车队的概览与入口。</span>
+        <div class="stage-tools" id="stageTools"></div>
+      </div>
+      <div class="stage-body">
+
+        <section class="panel stage-panel" data-panel="fleet">
+          <div class="section-title">已登记车辆</div>
+          <div class="row fleet-filters">
+            <input id="fleetSearch" placeholder="搜索 id / 名称 / 备注">
+            <select id="fleetTable">
+              <option value="">全部表</option>
+            </select>
+          </div>
+          <div id="fleetList" class="fleet"></div>
+        </section>
+
+        <section class="panel stage-panel hidden" data-panel="detail">
+          <div id="detailEmpty" class="empty">
+            <p>还没有选择车辆。</p>
+            <p class="hint">回到「车队账本」点选一台车，或者用「新建车辆」从零开始。</p>
+          </div>
+          <div id="detailBody" class="hidden">
+            <div class="detail-head">
+              <div>
+                <div class="section-title">车辆明细</div>
+                <div class="detail-title"><b id="detailId">—</b><span id="detailMeta" class="hint"></span></div>
+              </div>
+              <div class="row detail-actions">
+                <button id="copyVehicle">复制为新车辆</button>
+                <button class="danger" id="deleteVehicle">删除该车</button>
+                <button class="good" id="saveVehicle">保存</button>
+              </div>
+            </div>
+            <div id="detailGroups"></div>
+          </div>
+        </section>
+
+        <section class="panel stage-panel hidden" data-panel="livery">
+          <div class="section-title">涂装方案 <span class="hint">liveries.csv</span></div>
+          <p class="hint">同一个 id 的行序决定涂装索引：第 1 行是自动选择项（按 build_year 切换），其余行玩家可在改装菜单里挑选。若某一行带有真实年份区间，自动项就按建造年份切换，最早的一行成为默认。</p>
+          <div id="liveryList" class="aux"></div>
+          <div class="row"><button class="primary" id="addLivery">新增涂装行</button></div>
+        </section>
+
+        <section class="panel stage-panel hidden" data-panel="variant">
+          <div class="section-title">货运外观 <span class="hint">cargo_variants.csv</span></div>
+          <p class="hint">生成器会为每一组行搭出这条开关链：</p>
+          <pre class="chain mono">switch_&lt;id&gt;_empty         cargo_count &lt; 5     →  空车或涂装贴图
+switch_&lt;id&gt;_cargo_class   cargo_classes      →  每个货物类别一条
+switch_&lt;id&gt;_cargo_type    cargo_type_in_veh  →  只对填了 cargo_types 的行
+switch_&lt;id&gt;_&lt;variant&gt;_stage  cargo_count     →  部分装载 / 满载</pre>
+          <div id="variantList" class="aux"></div>
+          <div class="row"><button class="primary" id="addVariant">新增外观行</button></div>
+        </section>
+
+        <section class="panel stage-panel hidden" data-panel="sprite">
+          <div class="section-title">模型与精灵图</div>
+          <div id="spriteList" class="sprites"></div>
+        </section>
+
+        <section class="panel stage-panel hidden" data-panel="check">
+          <div class="section-title">一致性检查</div>
+          <div class="row"><button class="primary" data-action="check">运行检查</button><button data-action="gen">先重新生成代码</button></div>
+          <p class="hint">检查内容：字符串表双向核对（代码用到的必须存在，表里的必须被用到）、每个 template_* 引用是否有 <span class="mono">gfx/&lt;folder&gt;/&lt;basename&gt;_32bpp.png</span>、以及生成器自身的字段校验。</p>
+          <div class="console" id="checkConsole"><span class="hint">尚未运行。</span></div>
+        </section>
+
+        <section class="panel stage-panel hidden" data-panel="build">
+          <div class="section-title">构建 GRF</div>
+          <div class="row"><button class="warn" data-action="build">编译 GRF</button><button data-action="gen">先生成代码</button><button data-action="render">渲染精灵图</button></div>
+          <p class="hint">编译链：<span class="mono">gcc -E</span> 预处理 <span class="mono">chinasettrainsexport.pnml</span> → <span class="mono">nmlc -c</span> → <span class="mono">chinasettrainsexport.grf</span>。</p>
+          <div class="build-result" id="buildResult"></div>
+          <div class="console" id="buildConsole"><span class="hint">尚未编译。</span></div>
+        </section>
+
+        <section class="panel stage-panel hidden" data-panel="guide">
+          <div class="section-title">指南</div>
+          <div class="row">
+            <button data-doc="docs/guide-zh.md" class="doc-tab active">操作指南（中文）</button>
+            <button data-doc="data/README.md" class="doc-tab">数据表列参考</button>
+            <button data-doc="README-zh.md" class="doc-tab">工程说明</button>
+            <button data-doc="docs/pnml-generation.md" class="doc-tab">PNML 生成细节</button>
+          </div>
+          <div class="markdown" id="docView"><span class="hint">正在读取…</span></div>
+        </section>
+
+      </div>
+    </section>
+
+    <aside class="right">
+      <section class="section">
+        <div class="section-title">生成的 PNML 预览</div>
+        <pre class="mono small scroll" id="pnmlPreview"><span class="hint">选择一台车后显示。</span></pre>
+      </section>
+      <section class="section">
+        <div class="section-title">占位模型 / 精灵图</div>
+        <div class="preview" id="spritePreview"><span class="hint">尚未渲染</span></div>
+        <div class="row view-tabs hidden" id="viewTabs"></div>
+      </section>
+      <section class="section">
+        <div class="section-title">运行日志</div>
+        <div class="console small" id="runConsole"><span class="hint">尚无操作。</span></div>
+      </section>
+    </aside>
+  </main>
+
+  <div class="modal hidden" id="modal">
+    <div class="modal-box">
+      <div class="modal-head"><b id="modalTitle">新建车辆</b><button id="modalClose">关闭</button></div>
+      <div class="modal-body" id="modalBody"></div>
+      <div class="modal-foot"><button class="primary" id="modalOk">确定</button></div>
+    </div>
+  </div>
+
+  <script src="/workbench/app.js"></script>
+</body>
+</html>

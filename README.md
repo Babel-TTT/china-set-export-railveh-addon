@@ -71,17 +71,28 @@ make            # generate code, render sprites, build lang files, compile
 make -j 8       # the same, eight tasks at a time (first build is slow)
 make gen        # only regenerate the PNML code from data/
 make sprites    # only render the voxel models
+make workbench  # start the local browser workbench
 make clean      # remove build outputs
 ```
 
 The build pipeline is the same one the parent sets use:
 
 ```
-data/*.csv ──genpnml.py──> src/usercode.pnml, src/vehicleid.pnml, src/vehiclesort.pnml
+data/*.csv ──genpnml.py──> src/<folder>/<id>.pnml + vehicleid/vehiclefiles/vehiclesort
 gfx/**/*.vox ──renderobject──> gfx/**/*_32bpp.png
 docs/str.csv ──str-csv.py──> lang/*.lng
 chinasettrainsexport.pnml ──gcc -E──> chinasettrainsexport.nml ──nmlc──> chinasettrainsexport.grf
 ```
+
+## Workbench
+
+`make workbench` serves a local visual workbench at
+<http://127.0.0.1:4174/workbench/>: a fleet ledger, the 46 column vehicle form,
+livery and freight appearance tables, cropped previews of the rendered sprites,
+the string and asset consistency checks, and the GRF build with live output.
+It edits `data/` with the same validation the generator applies and never
+reimplements the generation itself — see
+[web/workbench/README.md](web/workbench/README.md).
 
 ## 3. Adding a vehicle
 

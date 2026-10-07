@@ -6,7 +6,9 @@ genpnml.py -- China Set: Export Rail Vehicles Add-on, PNML generator
 
 Reads the declarative tables in ``data/`` and writes
 
-  * ``src/usercode.pnml``      all generated switches / spritesets
+  * ``src/<folder>/<id>.pnml`` one file per vehicle, exactly like China Set:
+                               Trains keeps one file per vehicle
+  * ``src/vehiclefiles.pnml``  the include list of those files
   * ``src/vehicleid.pnml``     the ``item (FEAT_TRAINS, name, id) {}`` table
   * ``src/vehiclesort.pnml``   the ``sort (FEAT_TRAINS, [...])`` block
   * ``gfx/<folder>/<name>.vox`` placeholder voxel models (optional, ``--vox``)
@@ -37,6 +39,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import json
 import os
 import re
 import shutil
@@ -2034,7 +2037,7 @@ def write_generated(out_dir: str, files: Dict[str, str]) -> Tuple[int, int]:
 
 
 def generate(data_dir: str, out_dir: str, index_file: str, with_vox: bool,
-             vox_root: str, gfx_root: str) -> int:
+             vox_root: str, gfx_root: str, sprite_manifest: str = "") -> int:
     vehicles = load_vehicles(data_dir)
 
     if not vehicles:
@@ -2044,6 +2047,20 @@ def generate(data_dir: str, out_dir: str, index_file: str, with_vox: bool,
         print("genpnml: the tables in %s contain no vehicles" % data_dir)
         print("genpnml: writing the empty index files and leaving the gfx "
               "collection untouched")
+
+    if sprite_manifest:
+        # The local web workbench needs to know which sprite basenames every
+        # row requires; collect_sprite_basenames() is the only authority on
+        # that, so publish its answer instead of duplicating the rules.
+        wanted = {vehicle.id: sorted({basename for basename, _colour
+                                      in collect_sprite_basenames(vehicle)})
+                  for vehicle in vehicles}
+        ensure_dir(os.path.dirname(sprite_manifest) or ".")
+        with open(sprite_manifest, "w", encoding="utf-8", newline="\n") as handle:
+            json.dump(wanted, handle, ensure_ascii=False, indent=2, sort_keys=True)
+            handle.write("\n")
+        print("genpnml: recorded the sprite basenames of %d vehicles in %s"
+              % (len(wanted), sprite_manifest))
 
     ids = assign_ids(vehicles)
 
@@ -2123,6 +2140,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     parser.add_argument("--check", action="store_true",
                         help="verify that every string the code uses is defined in "
                              "the language table, and exit")
+    parser.add_argument("--sprite-manifest", default="",
+                        help="also record which sprite basename each vehicle needs "
+                             "into this JSON file (used by the web workbench)")
     args = parser.parse_args(argv)
 
     if args.strings:
@@ -2137,7 +2157,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         print("genpnml: removed %d generated files" % removed)
         return 0
 
-    return generate(args.data, args.out, args.index, args.vox, args.vox_root, args.gfx)
+    return generate(args.data, args.out, args.index, args.vox, args.vox_root,
+                    args.gfx, args.sprite_manifest)
 
 
 if __name__ == "__main__":

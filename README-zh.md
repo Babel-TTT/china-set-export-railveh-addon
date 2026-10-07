@@ -58,5 +58,19 @@ READ IN [ENGLISH](./README.md) | CHINESE
    每个精灵基名都需要一个 `.vox`。`make gen` 会为它们自动生成占位模型，
    因此即使还没有美术资源，工程也可以直接编译通过。
 
-`src/usercode.pnml`、`src/vehicleid.pnml`、`src/vehiclesort.pnml`
+`src/<目录>/<id>.pnml`、`src/vehicleid.pnml`、`src/vehiclesort.pnml`
 均为生成文件，请勿手工修改 —— 每次构建都会被覆盖。
+
+## 可视化工作台
+
+不想手改 CSV 时，运行：
+
+```bash
+make workbench
+# 打开 http://127.0.0.1:4174/workbench/
+```
+
+工作台提供车队账本、46 列车辆表单、涂装与货运外观表、按真实坐标裁剪的精灵图
+预览、一致性检查，以及带实时日志的 GRF 构建。它修改 `data/` 时使用与生成器
+相同的校验规则，并且不重新实现任何生成逻辑 —— 详见
+[web/workbench/README.md](web/workbench/README.md)。
