@@ -1645,7 +1645,7 @@ spriteset (spriteset_ckd8f_exblue, ZOOM_LEVEL_IN_4X, BIT_DEPTH_32BPP) {
 }
 
 spriteset (spriteset_ckd8f_purchase_exblue, ZOOM_LEVEL_IN_4X, BIT_DEPTH_32BPP) {
-    template_purchase ("diesel", "exblue")
+    template_purchase ("diesel", "ckd8f-exblue")
 }
 
 spriteset (spriteset_ckd8g, ZOOM_LEVEL_IN_4X, BIT_DEPTH_32BPP) {
@@ -1709,7 +1709,7 @@ spriteset (spriteset_df4bex_dprk, ZOOM_LEVEL_IN_4X, BIT_DEPTH_32BPP) {
 }
 
 spriteset (spriteset_df4bex_purchase_dprk, ZOOM_LEVEL_IN_4X, BIT_DEPTH_32BPP) {
-    template_purchase ("diesel", "dprk")
+    template_purchase ("diesel", "df4bex-dprk")
 }
 
 spriteset (spriteset_df4bex_ukraine, ZOOM_LEVEL_IN_4X, BIT_DEPTH_32BPP) {
@@ -1717,7 +1717,7 @@ spriteset (spriteset_df4bex_ukraine, ZOOM_LEVEL_IN_4X, BIT_DEPTH_32BPP) {
 }
 
 spriteset (spriteset_df4bex_purchase_ukraine, ZOOM_LEVEL_IN_4X, BIT_DEPTH_32BPP) {
-    template_purchase ("diesel", "ukraine")
+    template_purchase ("diesel", "df4bex-ukraine")
 }
 
 spriteset (spriteset_df4dex, ZOOM_LEVEL_IN_4X, BIT_DEPTH_32BPP) {
@@ -1833,7 +1833,7 @@ spriteset (spriteset_hxd1ex_exblue, ZOOM_LEVEL_IN_4X, BIT_DEPTH_32BPP) {
 }
 
 spriteset (spriteset_hxd1ex_purchase_exblue, ZOOM_LEVEL_IN_4X, BIT_DEPTH_32BPP) {
-    template_purchase ("25-electric", "exblue")
+    template_purchase ("25-electric", "hxd1ex-exblue")
 }
 
 spriteset (spriteset_hxd2ex, ZOOM_LEVEL_IN_4X, BIT_DEPTH_32BPP) {
@@ -1849,7 +1849,7 @@ spriteset (spriteset_hxd2ex_exblue, ZOOM_LEVEL_IN_4X, BIT_DEPTH_32BPP) {
 }
 
 spriteset (spriteset_hxd2ex_purchase_exblue, ZOOM_LEVEL_IN_4X, BIT_DEPTH_32BPP) {
-    template_purchase ("25-electric", "exblue")
+    template_purchase ("25-electric", "hxd2ex-exblue")
 }
 
 spriteset (spriteset_hxd3ex, ZOOM_LEVEL_IN_4X, BIT_DEPTH_32BPP) {
@@ -1865,7 +1865,7 @@ spriteset (spriteset_hxd3ex_exblue, ZOOM_LEVEL_IN_4X, BIT_DEPTH_32BPP) {
 }
 
 spriteset (spriteset_hxd3ex_purchase_exblue, ZOOM_LEVEL_IN_4X, BIT_DEPTH_32BPP) {
-    template_purchase ("25-electric", "exblue")
+    template_purchase ("25-electric", "hxd3ex-exblue")
 }
 
 spriteset (spriteset_ss3ex, ZOOM_LEVEL_IN_4X, BIT_DEPTH_32BPP) {
@@ -1905,7 +1905,7 @@ spriteset (spriteset_ss8ex_exblue, ZOOM_LEVEL_IN_4X, BIT_DEPTH_32BPP) {
 }
 
 spriteset (spriteset_ss8ex_purchase_exblue, ZOOM_LEVEL_IN_4X, BIT_DEPTH_32BPP) {
-    template_purchase ("25-electric", "exblue")
+    template_purchase ("25-electric", "ss8ex-exblue")
 }
 
 spriteset (spriteset_ss9ex, ZOOM_LEVEL_IN_4X, BIT_DEPTH_32BPP) {
@@ -2009,7 +2009,7 @@ spriteset (spriteset_yz25tex_green, ZOOM_LEVEL_IN_4X, BIT_DEPTH_32BPP) {
 }
 
 spriteset (spriteset_yz25tex_purchase_green, ZOOM_LEVEL_IN_4X, BIT_DEPTH_32BPP) {
-    template_purchase ("coaches", "green")
+    template_purchase ("coaches", "yz25tex-green")
 }
 
 spriteset (spriteset_yw25tex, ZOOM_LEVEL_IN_4X, BIT_DEPTH_32BPP) {
@@ -2025,7 +2025,7 @@ spriteset (spriteset_yw25tex_green, ZOOM_LEVEL_IN_4X, BIT_DEPTH_32BPP) {
 }
 
 spriteset (spriteset_yw25tex_purchase_green, ZOOM_LEVEL_IN_4X, BIT_DEPTH_32BPP) {
-    template_purchase ("coaches", "green")
+    template_purchase ("coaches", "yw25tex-green")
 }
 
 spriteset (spriteset_rw25tex, ZOOM_LEVEL_IN_4X, BIT_DEPTH_32BPP) {
@@ -2041,7 +2041,7 @@ spriteset (spriteset_rw25tex_green, ZOOM_LEVEL_IN_4X, BIT_DEPTH_32BPP) {
 }
 
 spriteset (spriteset_rw25tex_purchase_green, ZOOM_LEVEL_IN_4X, BIT_DEPTH_32BPP) {
-    template_purchase ("coaches", "green")
+    template_purchase ("coaches", "rw25tex-green")
 }
 
 spriteset (spriteset_ca25tex, ZOOM_LEVEL_IN_4X, BIT_DEPTH_32BPP) {
@@ -2121,7 +2121,7 @@ spriteset (spriteset_c70ex_gray, ZOOM_LEVEL_IN_4X, BIT_DEPTH_32BPP) {
 }
 
 spriteset (spriteset_c70ex_purchase_gray, ZOOM_LEVEL_IN_4X, BIT_DEPTH_32BPP) {
-    template_purchase ("wagons", "gray")
+    template_purchase ("wagons", "c70ex-gray")
 }
 
 spriteset (spriteset_c70ex_c70ex_coal_gray, ZOOM_LEVEL_IN_4X, BIT_DEPTH_32BPP) {

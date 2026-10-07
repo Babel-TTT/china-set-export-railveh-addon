@@ -744,7 +744,7 @@ def emit_vehicle(sprites: Emitter, switches: Emitter, items: Emitter,
         )
         define_spriteset(
             _livery_purchase_name(vehicle, livery),
-            livery.purchase_suffix or livery.suffix or vehicle.id,
+            _livery_basename(vehicle, livery),
             "template_purchase",
         )
         for variant in vehicle.cargo_variants:

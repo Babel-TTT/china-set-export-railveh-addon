@@ -36,7 +36,7 @@ STR_EXPORT_GREEN,Export olive green,出口橄榄绿
 STR_EXPORT_GRAY,Light grey,浅灰
 STR_DPRK_LIVERY,DPRK scheme,朝鲜涂装
 STR_UKRAINE_LIVERY,Ukraine scheme,乌克兰涂装
-STR_LIVERY_EXPORT,Export livery: {STRING},出口涂装
+STR_LIVERY_EXPORT,Export livery: {STRING},出口涂装：{STRING}
 STR_EXPORT_SERIES,Export series,出口系列
 STR_RESTAURANT_CAR,Restaurant car,餐车
 STR_AC_GENERATOR_CAR,Air conditioner generator car,空调发电车

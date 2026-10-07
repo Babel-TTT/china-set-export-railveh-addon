@@ -1,0 +1,7 @@
+# The whole project uses LF line endings; the .pnml files are fed to gcc and
+# nmlc, and the Makefile recipes must keep their tabs.
+* text=auto eol=lf
+Makefile text eol=lf
+*.png binary
+*.vox binary
+*.grf binary
