@@ -788,10 +788,12 @@ def emit_vehicle(sprites: Emitter, switches: Emitter, items: Emitter,
             switches.switch(cargo_root, "cargo_subtype", per_livery_roots,
                             per_livery_roots[0][1])
 
-    # ---- capacity / power / weight per part ---------------------------
+    # ---- capacity per part --------------------------------------------
+    # Capacity is the one value that must be distributed across the sections:
+    # OpenTTD reads ``cargo_capacity`` per vehicle part.  Weight and power are
+    # deliberately *not* distributed -- they are plain properties, see
+    # render_item().
     capacity_switch = _emit_capacity_switch(switches, vehicle)
-    power_switch = _emit_part_switch(switches, vehicle, "power", vehicle.power)
-    weight_switch = _emit_part_switch(switches, vehicle, "weight", vehicle.weight)
 
     # ---- livery graphics chain ---------------------------------------
     if vehicle.cargo_variants and cargo_root:
@@ -815,8 +817,7 @@ def emit_vehicle(sprites: Emitter, switches: Emitter, items: Emitter,
         default_graphics = livery_root
 
     # ---- item ---------------------------------------------------------
-    items.add(render_item(vehicle, default_graphics, capacity_switch, power_switch,
-                          weight_switch, livery_root))
+    items.add(render_item(vehicle, default_graphics, capacity_switch, livery_root))
 
 
 def _emit_livery_switch(emitter: Emitter, vehicle: Vehicle,
@@ -954,15 +955,15 @@ def _empty_sprite(vehicle: Vehicle, livery: Livery) -> str:
     return _livery_spriteset_name(vehicle, livery)
 
 
-def _emit_capacity_switch(emitter: Emitter, vehicle: Vehicle) -> str:
-    """Emit the ``cargo_capacity`` graphics callback for one vehicle.
+def _emit_capacity_switch(emitter: Emitter, vehicle: Vehicle) -> Optional[str]:
+    """Emit the ``cargo_capacity`` graphics callback for an articulated vehicle.
 
-    A vehicle never carries cargo in every section: on stock that OpenTTD
-    treats as 2-<body>-2 the load belongs to one section only, and a locomotive
-    carries nothing at all.  NML does not allow ``cargo_capacity: 0`` in the
-    property block, so the value is supplied by the graphics callback instead
-    and the property block only keeps a non-zero fallback.  This is the pattern
-    China Set: Trains and JPengines both use, for example::
+    Capacity is the one value OpenTTD reads per vehicle part, so on stock that
+    OpenTTD treats as 2-<body>-2 the load must be placed on one section only:
+    a plain number would give every section the same capacity and multiply the
+    train's total.  Weight and power need no such treatment, because both are
+    shared by the whole vehicle.  This is the pattern China Set: Trains uses,
+    for example::
 
         switch (FEAT_TRAINS, SELF, switch_<id>_capacity,
                 position_in_articulated_veh % 3) {
@@ -970,9 +971,11 @@ def _emit_capacity_switch(emitter: Emitter, vehicle: Vehicle) -> str:
             return 0;
         }
 
-    Every vehicle gets the callback, including a single section one, so a
-    locomotive can honestly report a capacity of zero.
+    Returns ``None`` for a single section vehicle, which uses the plain
+    property instead.
     """
+    if not vehicle.is_articulated:
+        return None
     switch = "switch_%s_capacity" % vehicle.id
     if vehicle.capacity_by_cargo:
         # the capacity depends on the cargo, so the section switch falls back
@@ -996,34 +999,6 @@ def _emit_capacity_switch(emitter: Emitter, vehicle: Vehicle) -> str:
     return switch
 
 
-def _emit_part_switch(emitter: Emitter, vehicle: Vehicle, kind: str,
-                      value: float) -> Optional[str]:
-    """Emit a switch that puts the whole value on the powered part only."""
-    if not vehicle.is_articulated:
-        return None
-    if kind == "power" and not value:
-        return None
-    if kind == "weight":
-        # The weight is shared by all sections.  NML wants a constant in the
-        # default position of a switch, so the per-section weight is computed
-        # here and rounded to a whole tonne.
-        total = int(round(value))
-        parts = max(1, vehicle.part_count)
-        per_part = max(1, total // parts)
-        switch = "switch_%s_weight" % vehicle.id
-        emitter.switch(switch, "position_in_articulated_veh", [],
-                       "return %d" % per_part)
-        return switch
-    switch = "switch_%s_%s" % (vehicle.id, kind)
-    emitter.switch(
-        switch,
-        f"position_in_articulated_veh % {vehicle.part_count}",
-        [(str(vehicle.power_section), "return %s" % _num(value))],
-        "return 0",
-    )
-    return switch
-
-
 def _num(value: float) -> str:
     """Format a number for NML.
 
@@ -1038,8 +1013,7 @@ def _num(value: float) -> str:
 
 
 def render_item(vehicle: Vehicle, default_graphics: str,
-                capacity_switch: Optional[str], power_switch: Optional[str],
-                weight_switch: Optional[str], livery_root: str) -> str:
+                capacity_switch: Optional[str], livery_root: str) -> str:
     vid = vehicle.id
     is_loco = vehicle.is_locomotive
     lines: List[str] = []
@@ -1087,9 +1061,10 @@ def render_item(vehicle: Vehicle, default_graphics: str,
     add("        refit_cost:                     0;")
     add("        default_cargo_type:             %s;" % vehicle.default_cargo)
     add("        ai_special_flag:                %s;" % vehicle.ai_flag)
-    # NML rejects cargo_capacity: 0, and the real per section value comes from
-    # the graphics callback below, so the property keeps a non-zero fallback.
-    add("        cargo_capacity:                 %d;" % max(vehicle.capacity, 1))
+    # Capacity is the one value OpenTTD reads per section, so a vehicle split
+    # into sections overrides it from the graphics block below.  The property
+    # keeps the plain value, which is what a single section vehicle uses.
+    add("        cargo_capacity:                 %d;" % vehicle.capacity)
     add("        loading_speed:                  %d << param_loading_speed;" % vehicle.loading_speed)
     add("        cargo_age_period:               %d << param_cargo_decay;" % vehicle.cargo_age_period)
     add("")
@@ -1100,6 +1075,9 @@ def render_item(vehicle: Vehicle, default_graphics: str,
             % _power(vehicle.power, vehicle.power_unit))
     else:
         add("        power:                          0 hp;")
+    # ``weight`` is the mass of the whole vehicle, articulated parts included,
+    # and ``power`` is likewise the output of the whole vehicle.  Both are plain
+    # properties: the table value is exactly what the game receives.
     add("        weight:                         %s ton;" % _num(vehicle.weight))
     if is_loco and vehicle.te_coeff:
         add("        tractive_effort_coefficient:    %s;" % _num(vehicle.te_coeff))
@@ -1141,14 +1119,16 @@ def render_item(vehicle: Vehicle, default_graphics: str,
     add("        // Stats")
     if vehicle.is_articulated and vehicle.length_switch:
         add("        length:                         %s;" % vehicle.length_switch)
-    if capacity_switch and (vehicle.is_articulated or vehicle.capacity <= vehicle.part_count):
-        # the callback carries the real load, section by section; a plain
-        # number would force the same capacity onto every section
+    if capacity_switch and vehicle.is_articulated:
+        # Only a vehicle split into sections needs the callback: the load
+        # belongs to the section named by power_section, and a plain number
+        # would force the same capacity onto every section.  A single section
+        # vehicle uses the plain property.
         add("        cargo_capacity:                 %s;" % capacity_switch)
-    if power_switch:
-        add("        power:                          %s;" % power_switch)
-    if weight_switch:
-        add("        weight:                         %s;" % weight_switch)
+    # Weight and power are plain properties.  Both are shared by the whole
+    # vehicle, articulated parts included, which is why the parent set writes a
+    # single ``weight: 138 ton`` for a three section locomotive.  No callback is
+    # needed or wanted here.
     if vehicle.capacity > 1:
         # the depot window shows one third of the articulated capacity
         share = vehicle.capacity // 3 if vehicle.capacity % 3 == 0 else vehicle.capacity
