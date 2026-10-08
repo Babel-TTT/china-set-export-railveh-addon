@@ -64,6 +64,11 @@ STR_CAT_MU,Multiple unit,动车组
 STR_CAT_MU_TRAILER,Multiple unit trailer,动车组拖车
 STR_NAME_DF4C,DF4C (DPRK),DF4C （朝鲜）
 STR_FULL_NAME_DF4C,DF4C (DPRK),
+STR_NAME_TM2,TM2 (Iran),
+STR_FULL_NAME_TM2,TM2 (Iran),
 STR_LV_BLUEGREEN,{BLUE}Blue{GREEN} Green Livery,{BLUE}蓝{GREEN}绿涂装
 STR_LV_BLUEGREEN_ALT,{BLUE}Alternative Blue{GREEN} Green Livery,{BLUE}另一种蓝{GREEN}绿涂装
 STR_LV_GREEN_W_WHITE,{DKGREEN}Green Livery With {WHITE}White Waistline,{DKGREEN}绿色涂装{WHITE}带白色腰线
+STR_LV_FRONT,Front,前端
+STR_LV_BACK,Back,后端
+STR_LV_AUTO,Automatic,自动

@@ -252,6 +252,10 @@ aside.right { border-left: 1px solid var(--line); }
 .rule-case .rule-arrow { color: var(--muted); }
 .rule-case input[type="number"] { width: 68px; }
 .rule-case select { max-width: 190px; }
+/* a bounded range is two numbers with a `..` between them; the unit name belongs
+   to the pair, so it follows the second one */
+.rule-case .rule-unit { color: var(--muted); }
+.rule-case input[type="number"] + .rule-unit { padding: 0 1px; }
 
 /* tier 3: which sprite each section shows */
 .sections { display: grid; gap: 8px; margin-bottom: 12px; }

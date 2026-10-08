@@ -800,11 +800,16 @@ def _identifier_part(text: str) -> str:
     return cleaned
 
 
+def _sheet_basename(vehicle: Vehicle, suffix: str) -> str:
+    """Sprite sheet of one scheme: ``<id>`` or ``<id>-<suffix>``."""
+    if suffix:
+        return "%s-%s" % (vehicle.id, suffix)
+    return vehicle.id
+
+
 def _livery_basename(vehicle: Vehicle, livery: Livery) -> str:
     """Sprite sheet basename of a livery: <id> or <id>-<livery suffix>."""
-    if livery.suffix:
-        return "%s-%s" % (vehicle.id, livery.suffix)
-    return vehicle.id
+    return _sheet_basename(vehicle, livery.suffix)
 
 
 def _livery_spriteset_name(vehicle: Vehicle, livery: Livery) -> str:
@@ -818,6 +823,19 @@ def _livery_purchase_name(vehicle: Vehicle, livery: Livery) -> str:
     if suffix:
         return "spriteset_%s_purchase_%s" % (vehicle.id, _identifier_part(suffix))
     return "spriteset_%s_purchase" % vehicle.id
+
+
+def _livery_purchase_basename(vehicle: Vehicle, livery: Livery) -> str:
+    """The sheet the depot preview of this vehicle is drawn from.
+
+    ``purchase_suffix`` names a sheet of its own, the way China Set: Trains writes
+    a separate purchase spriteset per vehicle -- often another sheet than the
+    scheme's own, and sometimes another vehicle's.  A scheme whose own artwork
+    does not exist yet can therefore still be the default scheme: it points its
+    depot sprite at a sheet that is drawn.  Empty means the scheme's own sheet,
+    which is what every row did before.
+    """
+    return _sheet_basename(vehicle, livery.purchase_suffix or livery.suffix)
 
 
 def _cargo_spriteset_name(vehicle: Vehicle, variant: CargoVariant, livery: Livery) -> str:
@@ -868,9 +886,18 @@ def emit_vehicle(sprites: Emitter, switches: Emitter, items: Emitter,
     # a second definition with a different template would be a contradiction.
     seen_spritesets: set = set()
     seen_templates: Dict[str, str] = {}
+    seen_basenames: Dict[str, str] = {}
 
     def define_spriteset(name: str, basename: str, template: str) -> None:
         if name in seen_spritesets:
+            if seen_basenames[name] != basename:
+                # The NML identifier folds `-` and `_` together, so `a-b` and
+                # `a_b` are two files but one name.  Returning quietly here would
+                # draw the first one's artwork for both, with nothing to notice.
+                raise SystemExit(
+                    "ERROR: %s: 贴图基名 %s 和 %s 折成同一个 NML 标识符 %s"
+                    "（连字符和下划线都折成下划线）；请改掉其中一个"
+                    % (vehicle.id, seen_basenames[name], basename, name))
             if seen_templates[name] != template:
                 raise SystemExit(
                     "ERROR: %s: 贴图基名 %s 被两个涂装用不同的模板定义"
@@ -879,6 +906,7 @@ def emit_vehicle(sprites: Emitter, switches: Emitter, items: Emitter,
             return
         seen_spritesets.add(name)
         seen_templates[name] = template
+        seen_basenames[name] = basename
         sprites.spriteset(name, folder, basename, template)
 
     for livery in vehicle.liveries:
@@ -889,7 +917,7 @@ def emit_vehicle(sprites: Emitter, switches: Emitter, items: Emitter,
         )
         define_spriteset(
             _livery_purchase_name(vehicle, livery),
-            _livery_basename(vehicle, livery),
+            _livery_purchase_basename(vehicle, livery),
             "template_purchase",
         )
         for variant in vehicle.cargo_variants:
@@ -1461,10 +1489,12 @@ def collect_sprite_basenames(vehicle: Vehicle) -> List[str]:
     for it rather than reimplementing the suffix rules.
 
     Only basenames something actually names are returned.  The bare ``<id>`` is
-    deliberately *not* included: it is the spriteset a livery with no suffix
-    uses, so it appears here as soon as such a livery exists, and listing it
-    unconditionally would report a model as missing that the generated code
-    never references.
+    deliberately *not* included on its own account: it is the spriteset a livery
+    with no suffix uses, so it appears here as soon as such a livery exists, and
+    listing it unconditionally would report a model as missing that the generated
+    code never references.  The sheet the **depot preview** uses *is* referenced --
+    the item block always asks for it -- so it is added even when no livery row
+    names it, which is what makes a missing ``<id>`` show up here.
     """
     wanted: List[str] = []
 
@@ -1472,6 +1502,8 @@ def collect_sprite_basenames(vehicle: Vehicle) -> List[str]:
         if basename and basename not in wanted:
             wanted.append(basename)
 
+    # the depot preview: the one purchase spriteset the item block returns
+    add(_livery_purchase_basename(vehicle, vehicle.default_livery))
     for livery in vehicle.liveries:
         if livery.suffix:
             add(_livery_basename(vehicle, livery))
@@ -1592,9 +1624,27 @@ def predicate_selector(text: str):
             raise GraphicsPartsError("条件 %r 永远不成立" % text.strip())
         return selector, "%d..%d" % (low, high)
 
+    # A bounded range: the one thing an operator cannot spell, because `pos>=3`
+    # and `pos<=8` are two conditions and the same variable may not be selected
+    # twice on one path.  `pos=3..8` (or `pos 3..8`) covers it in one case, which
+    # is also how it is compiled: `3..8: return ...`.
+    match = re.fullmatch(
+        r"%s\s*=?\s*([0-9]+)\s*\.\.\s*([0-9]+)" % re.escape(selector), expression)
+    if match:
+        low, high = int(match.group(1)), int(match.group(2))
+        if low > high:
+            raise GraphicsPartsError(
+                "区间 %r 的低值 %d 比高值 %d 大，永远不会匹配；"
+                "请把小的写在前面" % (text.strip(), low, high))
+        # an end past 255 is left alone on purpose: `pos<=300` is accepted the
+        # same way, and the two have to agree or the shorter spelling of one
+        # range would be refused while the other went through
+        return selector, "%d..%d" % (low, high)
+
     raise GraphicsPartsError(
         "条件 %r 不受支持。一个条件只能是“变量 比较 数字”的简单形式，例如 "
         "consist <= 9、pos == 0、tailpos >= 3、unitpos == 1；"
+        "一个上下都有界的区间写成 pos=3..8；"
         "不支持算式（如 pos / 3）。同一段里需要多个条件时请写多条规则，"
         "生成器会把它们编成嵌套开关" % text.strip())
 
@@ -1655,7 +1705,13 @@ class TreeNode:
         return "TreeNode(%r -> %r)" % (self.case, self.basename)
 
 
-BASENAME_RE = re.compile(r"[a-z0-9_]+")
+# A basename names a sprite *sheet*, and a sheet is ``<id>`` or ``<id>-<suffix>``
+# -- the livery suffix legitimately contains dashes (`df4c-korea-1`, `tm2-a`), and
+# one that starts with a dash makes the vehicle's own name end in one
+# (`df4c--korean-1`).  Underscores appear in hand written cells (`h_s`).  Upper
+# case, spaces and dots are refused: they are typos or a file name that could not
+# be referenced from NML, and the message says so.
+BASENAME_RE = re.compile(r"[a-z0-9][a-z0-9_-]*")
 
 
 def parse_graphics_parts(text: str, part_count: int) -> List[List[TreeNode]]:
@@ -1704,8 +1760,14 @@ def parse_graphics_parts(text: str, part_count: int) -> List[List[TreeNode]]:
             rest = rule
             chain: List[Tuple[str, str]] = []
             while True:
-                candidate, found = _longest_condition(rest)
+                candidate, found, reason = _longest_condition(rest)
                 if not found:
+                    if reason:
+                        # a whole condition was recognised and refused: that
+                        # reason is the answer, and saying "the basename is
+                        # malformed" instead would name the wrong part of the rule
+                        raise GraphicsPartsError(
+                            "第 %d 段的 %r 无法解析：%s" % (index + 1, rule, reason))
                     break
                 chain.append((candidate[0], candidate[1]))
                 rest = rest[len(candidate[2]):].lstrip("=").strip()
@@ -1714,7 +1776,8 @@ def parse_graphics_parts(text: str, part_count: int) -> List[List[TreeNode]]:
             if not BASENAME_RE.fullmatch(rest):
                 raise GraphicsPartsError(
                     "第 %d 段的 %r 无法解析：每一条规则是"
-                    "「条件=条件=…=贴图基名」，基名只能用小写字母、数字和下划线"
+                    "「条件=条件=…=贴图基名」，基名只能用小写字母、数字、下划线和连字符"
+                    "（涂装表里的贴图基名，例如 df4c-korea-1，可以直接写在这里）"
                     % (index + 1, rule))
             paths.append((chain, rest))
         # an empty section is valid and means "this section stays invisible"
@@ -2138,7 +2201,12 @@ def _graphics_sub_switch(branch: TreeNode) -> TreeNode:
 
 
 def _render_condition(selector: str, case: str) -> str:
-    """Write one case back as the condition text the cell language uses."""
+    """Write one case back as the condition text the cell language uses.
+
+    The three anchored shapes have a shorter spelling and get it, so a cell read
+    by a human says ``pos<=8`` rather than ``pos=0..8``; a range that is bounded
+    on both sides is written as one, which the parser reads back unchanged.
+    """
     low, high = _graphics_case_range(case)
     if low == high:
         return "%s==%d" % (selector, low)
@@ -2146,32 +2214,54 @@ def _render_condition(selector: str, case: str) -> str:
         return "%s<=%d" % (selector, high)
     if high == 255:
         return "%s>=%d" % (selector, low)
-    raise GraphicsPartsError(
-        "区间 %s 写不回表格（表格只能写「小于等于」「大于等于」和「等于」）"
-        % case)
+    return "%s=%d..%d" % (selector, low, high)
 
 
-def _longest_condition(text: str) -> Tuple[Tuple[str, str, str], bool]:
+# A candidate that *ends* in a complete comparison or range.  `_longest_condition`
+# walks prefixes from long to short, and the longer ones include the sprite
+# basename (`pos<=2=a`), which is not a condition and whose refusal says nothing
+# useful.  Only the prefixes this matches are worth quoting back to the author.
+CONDITION_SHAPE_RE = re.compile(r"(?:==|!=|<=|>=|<|>)\s*[0-9]+$|[0-9]+\s*\.\.\s*[0-9]+$")
+
+
+def _looks_like_condition(text: str) -> bool:
+    return bool(CONDITION_SHAPE_RE.search(text))
+
+
+def _longest_condition(text: str) -> Tuple[Tuple[str, str, str], bool, str]:
     """Split the longest valid condition off the front of a rule path.
 
-    Returns ``((selector, case, raw), True)`` or ``(("", "", ""), False)``.  The
-    longest match is what makes ``consist<=6=pos<=2`` two conditions rather than
-    one comparison against the text ``6=pos<=2``.  A comparison operator is
-    required, so a bare sprite sheet name is never mistaken for a condition,
-    which is what used to swallow the fallback in ``… | body_l``.
+    Returns ``((selector, case, raw), True, "")`` or ``(("", "", ""), False,
+    reason)``.  The longest match is what makes ``consist<=6=pos<=2`` two
+    conditions rather than one comparison against the text ``6=pos<=2``.  A
+    comparison operator is required, so a bare sprite sheet name is never
+    mistaken for a condition, which is what used to swallow the fallback in
+    ``… | body_l``; a bounded range (``pos 3..8``) counts as one too, which is
+    safe because a basename may not contain a dot.
+
+    When nothing parses, ``reason`` carries the refusal of the shortest prefix
+    that still looked like a whole condition -- that one is about the author's
+    mistake (``区间 'pos=8..3' 的低值 8 比高值 3 大``), while every longer prefix
+    only swallowed the basename and every shorter one is a fragment.  It is
+    reported instead of "the basename is malformed", which names the wrong thing.
     """
     best = ("", "", "")
+    reason = ""
     for end in range(len(text), 0, -1):
         candidate = text[:end]
-        if not re.search(r"[=<>]", candidate):
+        if not re.search(r"[=<>]|\d\.\.\d", candidate):
             continue
         try:
             selector, case = predicate_selector(candidate)
-        except GraphicsPartsError:
+        except GraphicsPartsError as error:
+            # walking towards shorter prefixes, so the last one recorded is the
+            # shortest complete condition and the most specific complaint
+            if _looks_like_condition(candidate):
+                reason = str(error)
             continue
         best = (selector, case, candidate)
         break
-    return best, bool(best[0])
+    return best, bool(best[0]), reason
 
 
 def graphics_rule_basenames(rules: List[List[TreeNode]]) -> List[str]:
@@ -3115,16 +3205,29 @@ def validate_vehicles(vehicles: Sequence[Vehicle]):
         # parsing itself has already happened by the time this runs, so what is
         # checked here is the shape of the tree rather than its text.
         for livery in vehicle.liveries:
+            # Only the first scheme's purchase spriteset is ever returned, so a
+            # purchase_suffix further down the table would be written out and then
+            # never used -- say so instead of leaving the author to wonder.
+            if livery.purchase_suffix and livery.index != 0:
+                warnings.append(
+                    "%s 涂装 #%d（%s）设了 purchase_suffix %r，但车库里显示的是"
+                    "第一行涂装的菜单图（#0，%s）；这一列只对第一行有意义"
+                    % (vehicle.id, livery.index,
+                       livery.suffix or _livery_basename(vehicle, livery),
+                       livery.purchase_suffix,
+                       vehicle.liveries[0].suffix
+                       or _livery_basename(vehicle, vehicle.liveries[0])))
             for position, roots in enumerate(livery.graphics_parts):
                 for root in roots:
                     for node in root.walk():
                         if node.basename and not BASENAME_RE.fullmatch(node.basename):
                             problems.append(
                                 "%s 涂装 #%d（%s）第 %d 段：贴图基名 %r 只能用小写"
-                                "字母、数字和下划线"
+                                "字母、数字、下划线和连字符（涂装表里的贴图基名，"
+                                "例如 %s-korea-1，可以直接写在这里）"
                                 % (vehicle.id, livery.index,
                                    livery.suffix or _livery_basename(vehicle, livery),
-                                   position + 1, node.basename))
+                                   position + 1, node.basename, vehicle.id))
     return problems, warnings
 
 

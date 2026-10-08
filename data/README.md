@@ -291,10 +291,13 @@ scheme's own sheet.
 
 Each piece is split on `|` into **rules**, and a rule is a *path*: one or more
 conditions joined with `=`, then the sprite sheet basename, for example
-`consist<=6=pos<=2=h_s`.  A condition itself contains `=` (`<=`, `==`), so the
-parser walks the path from the left, cuts off the longest valid condition each
-time, and what is left has to be a basename of `[a-z0-9_]+`.  A rule that is
-nothing but conditions, with no basename, is refused.
+`consist<=6=pos<=2=h_s`.  A condition itself contains `=` (`<=`, `==`), and a
+bounded range contains `..`, so the parser walks the path from the left, cuts off
+the longest valid condition each time, and what is left has to be a basename:
+lower case letters, digits, underscores and **dashes**.  A basename is a sprite
+sheet name, so the sheets this table names can be used directly in a rule
+(`df4c-korea-1`, `tm2-a`); upper case, spaces and dots are refused.  A rule that
+is nothing but conditions, with no basename, is refused too.
 
 | variable | means |
 | -------- | ----- |
@@ -307,12 +310,57 @@ Both spellings work: the short name above is a convenience alias for the NML
 variable next to it (`pos<=2` and `position_in_consist <= 2` are the same
 condition), and spaces around the operator are optional.
 
-Each condition must be a simple comparison of one variable with an unsigned
-number: `consist <= 6`, `pos == 0`, `tailpos >= 3`, `unitpos == 1`.  Operators are
-`==`, `<`, `<=`, `>`, `>=`.  `!=` and `!` are refused, as is a `&` inside one
-condition, an unknown variable, an upper case variable name and arithmetic such as
-`pos / 3 == 1` -- use `pos == 3` or rearrange the rules instead.  `unitpos` is
-legal, but the section switch already selects on
+A condition is either a simple comparison of one variable with an unsigned number
+or a range bounded on **both** sides, so there are four spellings:
+
+| spelling | selects |
+| -------- | ------- |
+| `pos==3` | part 3 |
+| `pos<=8` | parts 0 to 8 |
+| `pos>=3` | part 3 to the last |
+| `pos=3..8` (or `pos 3..8`) | parts 3 to 8, both ends included |
+
+`<` and `>` are still accepted, but only as sugar: `pos>2` and `pos>=3` select the
+same values, as do `pos<2` and `pos<=1` -- the number simply moves by one -- so the
+generator writes the `<=` / `>=` spelling back, and the workbench offers only the
+four spellings a cell can store unchanged.  The bounded range is the one shape
+**no operator can spell**: `pos>=3` and `pos<=8` are two conditions, and the same
+variable may not be selected twice along one path, so `pos=3..8` is the only way
+to say "parts 3 to 8".  It compiles to a single case, `3..8: return ...;`.
+
+Writing a cell back normalises the shape, so a hand written cell and the one the
+editor writes can look different while selecting the same values: a single value
+keeps `==`, a range that starts at 0 becomes `<=`, one that ends at 255 becomes
+`>=`, and anything else stays `low..high`.  `pos=0..6` therefore comes back as
+`pos<=6`, while `pos=3..8` is kept.  The write-back spells the variable out in
+full, so a typed `pos=3..8` lands in the table as `position_in_consist=3..8`.  An
+end past 255 (`pos=248..300`) is accepted exactly like `pos<=300`: the comparison
+variables hold 0..255, so the extra part is harmless.  A range whose ends are the
+wrong way round is refused rather than compiled into a case that can never match,
+with `区间 'pos=8..3' 的低值 8 比高值 3 大，永远不会匹配；请把小的写在前面`.
+
+Every other mistake is now named specifically, instead of being reported as a
+malformed basename:
+
+* a condition that can never hold, such as `pos<0`: `条件 'pos<0' 永远不成立`;
+* an unknown variable (`speed<=6`) or an upper case one (`POS<=2`): the message
+  names the fragment as written, `无法识别的条件片段 'speed<=6'` (or `'POS<=2'`),
+  and lists the four variables;
+* `!=` and `!`: `条件 'pos!=2' 不支持取反，请改用相反的比较`;
+* a `&` inside one condition: `条件 '&consist<=6' 含 & 或 |`, followed by the advice
+  to write several rules so that the generator nests switches instead;
+* arithmetic such as `pos / 3 == 1`: `条件 'pos/3==1' 不受支持`, followed by the
+  advice to write several rules instead and to spell a bounded range `pos=3..8`.
+
+Only a malformed **basename** is still reported with the generic message that a
+basename may only be lower case letters, digits, underscores and dashes
+(`基名只能用小写字母、数字、下划线和连字符`), because that message is about the
+basename.  Dashes are legal there: `a-b`, `tm2-a` and `df4c-korea-1` all parse.
+The NML identifier folds `-` and `_` into one underscore, though, so two names
+that differ only in that way (`a-b` and `a_b`) would share one spriteset and one
+of the two sheets would silently never be drawn.  The generator refuses that
+instead, naming both basenames.
+`unitpos` is legal, but the section switch already selects on
 `position_in_articulated_veh % <sections>`, and which section a rule belongs to is
 written by its position in the cell, so a condition on it is usually redundant.
 
@@ -322,7 +370,8 @@ Rules are read in the order they are written and merged into one switch tree per
 section:
 
 * several rules on **one variable** are several cases of one switch, tried top to
-  bottom: `pos<=2=a | pos>2=b` is one switch with the cases `0..2` and `3..255`;
+  bottom: `pos<=2=a | pos>2=b` is one switch with the cases `0..2` and `3..255`, and
+  a bounded range is a case of its own: `pos=3..8` selects `3..8`;
 * a rule on a **different variable** becomes the `default` of the switch before
   it, so the chain continues one level down:
   `pos<=2=set_head | tailpos<=2=set_tail | set_mid` is two switches in series;
@@ -427,7 +476,7 @@ switch (FEAT_TRAINS, SELF, switch_<id>_start_stop, num_vehs_in_consist < 6) {
 | `sprite_suffix` | appended to the sprite basename: suffix `green` means the model is `gfx/<folder>/<id>-green.vox`.  Empty means the plain `<id>` model. |
 | `string` | the label in the refit menu, written `LV_<NAME>`.  The generator maps it onto the NML constant `STR_LV_<NAME>`, so the label is `LV_EXPORT_BLUE` and `docs/str.csv` holds `STR_LV_EXPORT_BLUE`.  A bare `STR_<NAME>` cell is still accepted. |
 | `from_year`, `to_year` | the build years during which this scheme was delivered.  `0` and `9999` mean "always". |
-| `purchase_suffix` | optional separate basename suffix for the depot sprite. |
+| `purchase_suffix` | which sheet the **depot preview** is drawn from: suffix `a` means `gfx/<folder>/<id>-a.vox`.  Empty means the scheme's own sheet.  The depot sprite is the one spriteset of a scheme that is always returned (`graphics { purchase: ... }` takes the vehicle's first scheme), so a scheme whose own artwork does not exist yet can still be the default scheme by borrowing one that does.  Only the first row of a vehicle has an effect; the generator warns about it anywhere else. |
 | `templates` | optional `\|` separated list of template names, one per section. |
 | `graphics_parts` | this scheme's per section sprite rules; see [per section graphics](#per-section-graphics).  Empty means only the body section draws and the ends stay invisible. |
 

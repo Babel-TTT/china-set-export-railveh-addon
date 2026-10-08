@@ -20,3 +20,6 @@ id,sprite_suffix,string,from_year,to_year,purchase_suffix,templates,graphics_par
 df4c,korea-1,STR_LV_BLUEGREEN,0,9999,,,
 df4c,korea-2,STR_LV_BLUEGREEN_ALT,0,9999,,,
 df4c,korea-3,STR_LV_GREEN_W_WHITE,0,9999,,,
+tm2,,STR_LV_AUTO,0,9999,a,,;position_in_articulated_veh<=2=tm2-a | position_in_consist_from_end<=2=tm2-b | tm2-a;
+tm2,a,STR_LV_FRONT,0,9999,,,
+tm2,b,STR_LV_BACK,0,9999,,,

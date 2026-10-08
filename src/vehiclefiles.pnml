@@ -12,3 +12,6 @@
 
 // Locomotives/Diesel
 #include "dprk/df4c/df4c.pnml"
+
+// Locomotives/Electric
+#include "iran/tm2/tm2.pnml"

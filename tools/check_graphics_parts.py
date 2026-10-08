@@ -23,7 +23,6 @@ from __future__ import annotations
 
 import csv
 import io
-import re
 import shutil
 import subprocess
 import sys
@@ -57,8 +56,18 @@ ACCEPTED = [
     ";consist<=6=a | consist<=6=a;",
     # a rule may select on which section of the vehicle this is
     ";unitpos==1=a;",
+    # a basename is a sprite *sheet* name, and the sheets the livery table names
+    # carry a dash: `df4c-korea-1`, `tm2-a`.  Those are exactly the names a scheme
+    # wants to show in another section, so they have to parse here.
+    ";consist<=6=a-b;",
+    ";num_vehs_in_consist<=6=a-b;",
     # a branch may hold a whole sub tree
     ";consist<=6=pos<=2=a | consist<=6=pos>2=b | consist<=6=c | d;",
+    # a range bounded on both sides.  This is the one shape no operator can
+    # spell: `pos>=3` and `pos<=8` are two conditions, and the same variable may
+    # not be selected twice along one path, so without this it is inexpressible.
+    ";pos=3..8=a;",
+    ";pos 3..8=a | pos<=2=b | c;",   # the spaces are optional, as with operators
 ]
 
 # cells that must be refused, with a fragment of the message that explains why
@@ -70,14 +79,26 @@ REFUSED = [
     # a variable may not be selected on twice along one path
     (";pos<=2=tailpos<=2=pos<=2=a;", "重复使用"),
     (";pos<=2=a | tailpos<=2=b | pos<=3=c;", "重复使用"),
+    # a range whose ends are the wrong way round can never match
+    (";pos=8..3=a;", "低值"),
     # a case that a sibling already covers never shows
     (";consist<=10=a | consist<=6=b | c;", "永远不会生效"),
     # one case cannot show two different sheets
     (";consist<=6=a | consist<=6=b;", "同时指定了模型"),
-    # a sheet name has to be a NML friendly identifier
-    (";consist<=6=a-b;", "无法解析"),
-    # the variables the generator knows about are the only ones available
-    (";speed<=6=a;", "无法解析"),
+    # a basename has to be a NML friendly file name: upper case and dots are not,
+    # and the message says which characters are allowed
+    (";consist<=6=A_b;", "基名只能用小写字母"),
+    # `-` and `_` fold to the same NML identifier, so these two files would share
+    # one spriteset and one of them would silently draw the other's artwork
+    (";consist<=6=a-b | a_b;", "折成同一个 NML 标识符"),
+    # the variables the generator knows about are the only ones available, and
+    # the message names them instead of only complaining about the basename
+    (";speed<=6=a;", "可用变量"),
+    # a condition that is refused on purpose says *which* part is wrong.  These
+    # used to be reported as a malformed basename, which points at the wrong end
+    # of the rule
+    (";pos!=2=a;", "不支持取反"),
+    (";pos<0=a;", "永远不成立"),
 ]
 
 failures = []
@@ -187,20 +208,19 @@ def main() -> int:
         vehicle = loco[loco_head + 1][0].strip()
         folder = loco[loco_head + 1][loco[loco_head].index("folder")].strip()
         # every sheet name the cells use has to resolve, or the compile fails for
-        # a reason that has nothing to do with the rule tree.  The conditions are
-        # stripped first, longest variable name first, so that
-        # "position_in_consist <= 2" leaves nothing behind for the name scan.
-        variables = ("position_in_consist_from_end|position_in_articulated_veh|"
-                     "position_in_consist|num_vehs_in_consist|"
-                     "tailpos|consist|unitpos|pos")
-        conditions = re.compile(r"\b(?:%s)\s*[=<>!]+\s*[0-9]+" % variables)
-        known = {"pos", "tailpos", "consist", "unitpos"}
-        sheets = sorted({basename
-                         for cell in ACCEPTED
-                         for basename in re.findall(r"[a-z0-9_]+",
-                                                    conditions.sub("", cell))
-                         if basename not in known})
-        made = make_test_sheets(folder, vehicle + "-korea-1", sheets)
+        # a reason that has nothing to do with the rule tree.  The names come from
+        # the generator's own parser instead of a regex here, because a condition
+        # is not regular enough to strip by hand: `pos=3..8` looks like a
+        # comparison followed by a number, and stripping only `pos=3` would leave
+        # `8` behind as a sheet name.
+        sheets = set()
+        for cell in ACCEPTED:
+            try:
+                sheets.update(genpnml.graphics_rule_basenames(
+                    genpnml.parse_graphics_parts(cell, 3)))
+            except Exception:  # noqa: BLE001 -- reported by the parse loop below
+                continue
+        made = make_test_sheets(folder, vehicle + "-korea-1", sorted(sheets))
 
         print("accepted cells (generate + compile)")
         for cell in ACCEPTED:
@@ -216,6 +236,19 @@ def main() -> int:
             built = compile_all()
             check("%-48r compiles" % cell, built.returncode == 0,
                   error_lines(built))
+
+        # The accepted cells prove the range compiles; this proves *what* it
+        # compiles to.  A range that reached NML as two cases on the same variable
+        # would nmlc-reject or draw the wrong thing, and "it compiled" would not
+        # have noticed.
+        write_cell(rows, head, column, ";pos=3..8=a;")
+        run([sys.executable, "genpnml.py", "--data", "data", "--out", "src",
+             "--sprite-manifest", "gfx/.workbench-sprites.json"])
+        pnml = ROOT / "src" / folder / (vehicle + ".pnml")
+        text = pnml.read_text(encoding="utf-8") if pnml.is_file() else ""
+        one_case = "3..8:" in text
+        check("a bounded range becomes one case", one_case,
+              "" if one_case else "no `3..8:` in %s" % pnml.relative_to(ROOT))
 
         print("refused cells (clear message, no build)")
         for cell, fragment in REFUSED:

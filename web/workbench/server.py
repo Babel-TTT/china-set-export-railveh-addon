@@ -116,10 +116,14 @@ COMMANDS = {
     },
     "check": {
         "label": "一致性检查",
-        "steps": [[sys.executable, "genpnml.py", "--data", "data", "--check",
-                   "--strings-file", "docs/str.csv"],
-                  [sys.executable, "tools/verify_assets.py"],
-                  [sys.executable, "tools/check_gfx_config.py"]],
+        "steps": [
+            # the front end's own wiring first: it is instant, needs no build,
+            # and a data problem in the steps below would otherwise hide it
+            [sys.executable, "tools/check_workbench_routes.py"],
+            [sys.executable, "genpnml.py", "--data", "data", "--check",
+             "--strings-file", "docs/str.csv"],
+            [sys.executable, "tools/verify_assets.py"],
+            [sys.executable, "tools/check_gfx_config.py"]],
     },
     "render": {
         "label": "渲染精灵图",
@@ -539,6 +543,17 @@ def livery_basename(vehicle_id: str, suffix: str) -> str:
     return "%s-%s" % (vehicle_id, suffix) if suffix else vehicle_id
 
 
+def purchase_basename(vehicle_id: str, row: dict) -> str:
+    """The sheet the depot preview of that scheme uses (mirrors genpnml).
+
+    ``purchase_suffix`` names a sheet of its own -- the column the parent set's
+    hand written purchase spritesets correspond to -- so the depot sprite can be
+    drawn from a sheet that exists while the scheme's own artwork does not.
+    """
+    suffix = (row.get("purchase_suffix") or row.get("sprite_suffix") or "").strip()
+    return livery_basename(vehicle_id, suffix)
+
+
 def livery_constant(label: str) -> str:
     """The NML constant a livery label cell refers to (mirrors genpnml).
 
@@ -710,7 +725,9 @@ def validate_livery_row(row: dict, vehicle_ids, is_new: bool, rows, index=None,
     for position, other in siblings():
         if livery_basename(vehicle_id, other.get("sprite_suffix")) == basename:
             errors.append("同一台车的第 %d 行已经是同一个模型 %s；"
-                          "要新增涂装请换一个精灵图后缀（每行一个 .vox）"
+                          "要新增涂装请换一个模型后缀（每行一个 .vox）。"
+                          "如果只是想让车库购买列表里那张小图借用另一张图，"
+                          "请改「购买菜单小图后缀」，它与模型无关"
                           % (position + 1, basename))
             break
 
@@ -854,30 +871,63 @@ def collect_sprite_basenames() -> dict:
     """
     script = (
         "import json, genpnml\n"
-        "vehicles = genpnml.load_vehicles()\n"
+        "vehicles = genpnml.load_vehicles(%r)\n"
         "out = {v.id: genpnml.collect_sprite_basenames(v) for v in vehicles}\n"
         "print('__SPRITES__' + json.dumps(out))\n"
-    )
+    ) % str(DATA)
     try:
         done = subprocess.run([sys.executable, "-c", script], cwd=str(ROOT), text=True,
                               capture_output=True, check=False, timeout=120,
                               env=dict(os.environ, PYTHONIOENCODING="utf-8"))
-    except (OSError, subprocess.SubprocessError):
+    except (OSError, subprocess.SubprocessError) as error:
+        report("asking the generator for the sprite names failed: %s" % error)
         return {}
     for line in (done.stdout or "").splitlines():
         if line.startswith("__SPRITES__"):
             try:
                 return json.loads(line[len("__SPRITES__"):])
             except json.JSONDecodeError:
-                return {}
+                break
+    # Say so rather than returning an empty mapping that reads like "nothing is
+    # missing": this fallback is what covers a table edited since the last
+    # `--sprite-manifest` run, and silence here was hiding a broken call.
+    report("asking the generator for the sprite names produced nothing: %s"
+             % (done.stderr or done.stdout or "").strip()[-300:])
     return {}
+
+
+def report(message: str) -> None:
+    """Say something on the server's stderr, where the terminal running it sees it."""
+    sys.stderr.write("[workbench] %s\n" % message)
+
+
+def tables_newer_than(path: Path) -> bool:
+    """True when a data table was saved after ``path`` was written.
+
+    The sprite manifest is written by a ``genpnml.py`` run that asks for one
+    (``--sprite-manifest``), and neither ``make gen`` nor a plain generator run
+    does, so it goes stale as soon as a row is edited.  Comparing the times is
+    what keeps the list of missing models -- and the model dropdown, which is
+    built from the same records -- about the tables as they are now.
+    """
+    try:
+        stamp = path.stat().st_mtime
+    except OSError:
+        return True
+    for name in ALL_TABLES:
+        try:
+            if (DATA / name).stat().st_mtime > stamp:
+                return True
+        except OSError:
+            continue
+    return False
 
 
 def sprite_basenames() -> dict:
     """{vehicle id: [record, ...]} with the model and sheet state of each basename."""
     cache = sprite_manifest_path()
     by_id = {}
-    if cache.is_file():
+    if cache.is_file() and not tables_newer_than(cache):
         try:
             by_id = json.loads(cache.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
@@ -1079,11 +1129,16 @@ def build_state() -> dict:
         return GFX.joinpath(*folder.split("/"), name).is_file()
 
     labels_by_vehicle: dict = {}
-    for row in aux["liveries.csv"]:
+    # the first scheme of a vehicle is its default one, and the depot preview is
+    # taken from it -- so the editor can say which row that is
+    first_livery: dict = {}
+    for position, row in enumerate(aux["liveries.csv"]):
         vehicle_id = (row.get("id") or "").strip()
         constant = livery_constant(row.get("string"))
         if vehicle_id and constant:
             labels_by_vehicle.setdefault(vehicle_id, []).append(constant)
+        if vehicle_id and vehicle_id not in first_livery:
+            first_livery[vehicle_id] = position
 
     for position, row in enumerate(aux["liveries.csv"]):
         vehicle_id = (row.get("id") or "").strip()
@@ -1099,6 +1154,12 @@ def build_state() -> dict:
                                               row["_sections"])
         row["_vox"] = sprite_file(folder, basename + ".vox")
         row["_png"] = sprite_file(folder, basename + "_32bpp.png")
+        # the depot preview: the vehicle's first scheme is what the item block
+        # returns, and purchase_suffix may point it at another sheet
+        row["_purchase"] = position == first_livery.get(vehicle_id)
+        purchase = purchase_basename(vehicle_id, row)
+        row["_purchase_basename"] = purchase
+        row["_purchase_png"] = sprite_file(folder, purchase + "_32bpp.png")
         # a livery is identified in the refit menu by its string, so the editor
         # has to say when several schemes of one vehicle would be listed under
         # the same label and the player could not tell them apart

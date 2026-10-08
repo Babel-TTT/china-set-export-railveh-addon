@@ -764,25 +764,34 @@
 
   /**
    * 一个区间在 NML 里的写法；与 genpnml.predicate_selector 一一对应。
-   * `pos < 0`、`pos > 255` 永远不成立，生成器会直接拒绝，所以这里按同样的
-   * 方式收敛到最近一个成立的值：`< 0` 当 `< 1`，`> 255` 当 `> 254`。
-   * 只有一个值的区间写成 `==`，与生成器的规范形一致，免得每次回写都变样。
+   *
+   * 只做生成器能**原样存回**的那几种：一个区间在表格里只有 `<=n`、`==n`、
+   * `>=n` 和 `low..high` 四种写法。`pos<2` 和 `pos>2` 是 `<=1` 和 `>=3` 的
+   * 同义词，生成器一写回就变成后者，所以下拉框里不提供——提供了就会「选了又跳回
+   * 别的符号」。上下都有界的 `3..8` 没有任何运算符能表达（`pos>=3` 和 `pos<=8`
+   * 是两个条件，而同一个变量不能在一条路径上选两次），所以它是单独的一种。
    */
-  function caseOf(operator, value) {
-    let n = Math.max(0, Math.min(255, Number(value) || 0));
-    if (operator === '<') n = Math.max(1, n);
-    if (operator === '>') n = Math.min(254, n);
-    let low;
-    let high;
+  function caseOf(operator, value, upper) {
+    const clamp = (input) => Math.max(0, Math.min(255, Number(input) || 0));
+    const n = clamp(value);
     if (operator === '==') return String(n);
-    if (operator === '<=') { low = 0; high = n; } else if (operator === '<') { low = 0; high = n - 1; } else if (operator === '>=') { low = n; high = 255; } else { low = n + 1; high = 255; }
+    if (operator === '..') {
+      const high = clamp(upper);
+      return n === high ? String(n) : `${n}..${high}`;
+    }
+    // The control no longer offers `<` and `>`, so these two are only reached if
+    // something else calls this with a spelling the cell language still accepts;
+    // they are translated to the equivalent the storage keeps rather than
+    // silently treated as `<=`.
+    if (operator === '<') return caseOf('<=', Math.max(1, n) - 1);
+    if (operator === '>') return caseOf('>=', Math.min(254, n) + 1);
+    const low = operator === '>=' ? n : 0;
+    const high = operator === '>=' ? 255 : n;
     return low === high ? String(low) : `${low}..${high}`;
   }
 
-  /** 数值框允许的范围：`<` 最小 1、`>` 最大 254，与 caseOf 的收敛一致。 */
-  function valueBounds(operator) {
-    if (operator === '<') return [1, 255];
-    if (operator === '>') return [0, 254];
+  /** 数值框允许的范围；`==` 和 `..` 的两个框都是全范围。 */
+  function valueBounds() {
     return [0, 255];
   }
 
@@ -792,12 +801,16 @@
     const range = /^(\d+)\.\.(\d+)$/.exec(value);
     if (range) {
       const low = Number(range[1]); const high = Number(range[2]);
-      if (low === 0) return { operator: '<=', value: high, raw: value };
-      if (high === 255) return { operator: '>=', value: low, raw: value };
-      return { operator: '', value: low, raw: value };
+      if (low === high) return { operator: '==', value: low, low, high, raw: value };
+      if (low === 0) return { operator: '<=', value: high, low, high, raw: value };
+      if (high === 255) return { operator: '>=', value: low, low, high, raw: value };
+      return { operator: '..', value: low, low, high, raw: value };
     }
-    if (/^\d+$/.test(value)) return { operator: '==', value: Number(value), raw: value };
-    return { operator: '', value: 0, raw: value };
+    if (/^\d+$/.test(value)) {
+      return { operator: '==', value: Number(value), low: Number(value),
+        high: Number(value), raw: value };
+    }
+    return { operator: '', value: 0, low: 0, high: 0, raw: value };
   }
 
   function newLeaf(basename) {
@@ -818,6 +831,7 @@
       if (part.operator === '==') return [part.value, part.value];
       if (part.operator === '<=') return [0, part.value];
       if (part.operator === '>=') return [part.value, 255];
+      if (part.operator === '..') return [part.low, part.high];
       return [0, 255];                      // 认不出来的区间，当作全覆盖
     });
     for (let value = 0; value < 256; value += 1) {
@@ -879,17 +893,32 @@
         const part = splitCase(child.case);
         const nested = Boolean(child.selector_below);
         const slotOfChild = registerSlot(card, child);
-        const bounds = valueBounds(part.operator);
+        const bounds = valueBounds();
+        const variable = esc(shortVariable(node.selector || node.selector_below));
+        // The list holds only the operators the cell can store unchanged.  `<`
+        // and `>` are not among them: they are `<=`/`>=` with the number moved by
+        // one, so the generator writes the equivalent back and the control would
+        // appear to jump to another symbol the moment it was used.
+        const operators = ['<=', '==', '>=', '..'];
+        const amount = part.operator === '..'
+          ? `<input type="number" min="${bounds[0]}" max="${bounds[1]}" value="${esc(part.low)}"
+               data-rule-field="value" data-slot="${slotOfChild}" title="区间下限">
+             <span class="rule-unit">..</span>
+             <input type="number" min="${bounds[0]}" max="${bounds[1]}" value="${esc(part.high)}"
+               data-rule-field="value-high" data-slot="${slotOfChild}" title="区间上限">
+             <span class="rule-unit">${variable}</span>`
+          : `<input type="number" min="${bounds[0]}" max="${bounds[1]}" value="${esc(part.value)}"
+               data-rule-field="value" data-slot="${slotOfChild}">
+             <span class="rule-unit">${variable}</span>`;
         return `<div class="rule-case">
           <span class="rule-when">当</span>
-          <select data-rule-field="operator" data-slot="${slotOfChild}">
-            ${['<=', '<', '==', '>=', '>'].map((op) =>
-              `<option value="${op}"${op === part.operator ? ' selected' : ''}>${esc(op)}</option>`).join('')}
+          <select data-rule-field="operator" data-slot="${slotOfChild}"
+            title="一个区间在表格里只有这四种写法；&lt; 与 &gt; 会被写成等价的 &lt;= / &gt;=">
+            ${operators.map((op) =>
+              `<option value="${op}"${op === part.operator ? ' selected' : ''}>${op === '..' ? '区间' : esc(op)}</option>`).join('')}
           </select>
-          <input type="number" min="${bounds[0]}" max="${bounds[1]}" value="${esc(part.value)}"
-            data-rule-field="value" data-slot="${slotOfChild}">
-          <span class="rule-unit">${esc(shortVariable(node.selector || node.selector_below))}</span>
-          ${part.operator ? '' : `<span class="tag warn" title="表格只能写 &lt;=、&lt;、==、&gt;=、&gt;">区间 ${esc(part.raw)} 无法编辑</span>`}
+          ${amount}
+          ${part.operator ? '' : `<span class="tag warn" title="认不出来的区间写法，请用「直接编辑文本」">区间 ${esc(part.raw)} 无法编辑</span>`}
           <span class="rule-arrow">→</span>
           ${nested
             ? `<span class="tag cyan">再筛一层 · ${esc(shortVariable(child.selector_below))}</span>
@@ -1016,7 +1045,7 @@
   async function flushRuleTree(card, rerender = true) {
     const tree = card.__tree;
     try {
-      const report = await jsonFetch('/api/graphics-parts', {
+      const report = await jsonFetch('/graphics-parts', {
         method: 'POST',
         body: JSON.stringify({
           parts: (state.row && state.row.parts) || '',
@@ -1099,10 +1128,29 @@
       if (node.children.length) node.children = node.children.filter((child) => child.case)
         .slice(0, 1);
     } else if (field.dataset.ruleField === 'operator') {
-      node.case = caseOf(field.value, splitCase(node.case).value);
+      const part = splitCase(node.case);
+      if (field.value === '..') {
+        // 「区间」 means bounded on *both* sides, so the ends have to leave the
+        // anchors: `0..6` IS `<=6` and is written back as `<=`, which would leave
+        // the author unable to reach range mode at all.  Widen to a real interval
+        // and let them adjust it -- the two boxes show what happened.
+        const low = Math.min(Math.max(1, part.low), 253);
+        node.case = caseOf('..', low, Math.min(Math.max(part.high, low + 1), 254));
+      } else {
+        // the number the author can see stays put; the operator reinterprets it
+        node.case = caseOf(field.value, part.value);
+      }
       return flushRuleTree(card);
-    } else if (field.dataset.ruleField === 'value') {
-      node.case = caseOf(splitCase(node.case).operator || '<=', field.value);
+    } else if (field.dataset.ruleField === 'value'
+               || field.dataset.ruleField === 'value-high') {
+      const part = splitCase(node.case);
+      if (part.operator === '..') {
+        const low = field.dataset.ruleField === 'value' ? field.value : part.low;
+        const high = field.dataset.ruleField === 'value-high' ? field.value : part.high;
+        node.case = caseOf('..', low, high);
+      } else {
+        node.case = caseOf(part.operator || '<=', field.value);
+      }
       // 回写之后服务端会把区间规范化，树被换成新的节点，所以必须重画一遍：
       // 否则后面点「删除」之类的按钮拿着的是旧节点，会点不动或点错地方。
       return flushRuleTree(card);
@@ -1196,6 +1244,13 @@
             ${mono(`${row._folder || '?'}/${row._basename || '—'}.vox`)}
             ${modelBadge(row)}
           </span>
+          ${row._purchase ? `<span class="livery-model"
+            title="车库购买列表里那台车的小图取本车第一行涂装；填「购买菜单小图后缀」可以让它借用另一张图">
+            <span class="hint">菜单图</span>
+            ${mono(`${row._folder || '?'}/${row._purchase_basename || '—'}.vox`)}
+            ${row._purchase_png ? '<span class="tag ok">已渲染</span>'
+              : '<span class="tag warn">缺这张图</span>'}
+          </span>` : ''}
           ${shared ? `<span class="tag warn"
             title="涂装是靠这个字符串在改装菜单里区分的；同车多行共用一个字符串时，菜单里会显示成同一条">
             名称与另外 ${row._label_used - 1} 行重复</span>` : ''}
@@ -1304,7 +1359,7 @@
     const parts = ((state.row && state.row.parts) || '');
     const request = ++rulePreviewSerial;
     host.innerHTML = '<span class="hint">解析中…</span>';
-    jsonFetch(`/api/rules?cell=${encodeURIComponent(text)}&parts=${encodeURIComponent(parts)}`)
+    jsonFetch(`/rules?cell=${encodeURIComponent(text)}&parts=${encodeURIComponent(parts)}`)
       .then((report) => {
         // a later keystroke owns the box now, so drop this answer
         if (request !== rulePreviewSerial || !host.isConnected) return;
@@ -1334,6 +1389,16 @@
     const container = all('.livery').find((item) => Number(item.dataset.livery) === index);
     const original = (state.fleet.liveries || []).find((item) => item._index === index);
     if (!container || !original) return;
+    // The block editor sends every change to the server and re-reads the cell it
+    // renders to.  If that write-back failed, the blocks on screen are NOT what
+    // the textarea holds, so saving the row would quietly discard the editor's
+    // work -- the screen would look saved and the table would keep the old cell.
+    if (container.__treeError) {
+      setStatus('分节图像有改动没能写回表格：' + container.__treeError
+        + '\n这一行的规则还是旧的，先处理上面的提示再保存（否则分节规则的改动会丢）。',
+        'error');
+      return;
+    }
     const row = collectLiveryRow(container, original);
     try {
       const result = await jsonFetch('/save', {
@@ -2152,6 +2217,20 @@
     return out.join('\n');
   }
 
+  /**
+   * Whether a click inside a fleet card should open that vehicle.
+   *
+   * The whole card is a big "编辑这台车" target, but it carries controls of its
+   * own -- the ▲▼ order buttons, 折叠到, 折叠项名称 -- and a click on one of them
+   * has to work that control.  Without this the browser navigated to the vehicle
+   * workbench the moment the dropdown was opened, so the value could not be
+   * changed from the overview at all.
+   */
+  function fleetClickOpensCard(target) {
+    if (!target || typeof target.closest !== 'function') return false;
+    return !target.closest('select, input, textarea, button, a, label');
+  }
+
   // ------------------------------------------------------------------ wire
   function wire() {
     $('stageNav').addEventListener('click', (event) => {
@@ -2159,6 +2238,7 @@
       if (button) setStage(button.dataset.stage);
     });
     $('fleetList').addEventListener('click', (event) => {
+      if (!fleetClickOpensCard(event.target)) return;
       const card = event.target.closest('.vcard');
       if (card) openVehicle(card.dataset.table, card.dataset.id);
     });

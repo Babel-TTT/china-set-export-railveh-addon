@@ -36,6 +36,8 @@ LOCO = ROOT / "data" / "locomotives.csv"
 LIV = ROOT / "data" / "liveries.csv"
 LANG = ROOT / "docs" / "str.csv"
 GFX = ROOT / "gfx" / "dprk" / "df4c"
+# the documented table order, and every table the sort block covers
+TABLES = ("locomotives.csv", "coaches.csv", "wagons.csv", "unit_wagons.csv")
 TEST = "df4ctest"
 
 failures: list[str] = []
@@ -73,6 +75,30 @@ def write_cells(path: Path, comments, header, rows) -> bytes:
     data = buffer.getvalue().encode("utf-8")
     path.write_bytes(data)
     return data
+
+
+def declared_menu_order() -> list[str]:
+    """The purchase order the tables ask for, by the rule the sort block states.
+
+    Read from data/ rather than hardcoded: adding a vehicle to the tables must not
+    fail this check -- the tables and the emitted block *disagreeing* must.  The
+    rule is the one printed above the block: ``menu_order`` wins and a row that
+    leaves it empty comes last, with the table and then the row order as the tie
+    breaker.
+    """
+    ordered = []
+    for table_index, name in enumerate(TABLES):
+        _comments, _header, rows = read_cells(ROOT / "data" / name)
+        for row_index, row in enumerate(rows):
+            raw = (row.get("menu_order") or "").strip()
+            try:
+                key = int(float(raw))
+            except ValueError:
+                key = 0
+            ordered.append((key if key > 0 else 10 ** 6,
+                            table_index * 1000 + row_index, row["id"]))
+    ordered.sort(key=lambda item: (item[0], item[1]))
+    return [item[2] for item in ordered]
 
 
 def compile_all():
@@ -168,7 +194,9 @@ def main() -> int:
         sort = (ROOT / "src" / "vehiclesort.pnml").read_text(encoding="utf-8")
         order = [line.strip().rstrip(",") for line in sort.splitlines()
                  if line.startswith("    ") and not line.strip().startswith("//")]
-        check("menu_order decides the sort block", order == [TEST, "df4c"], str(order))
+        expected = declared_menu_order()
+        check("menu_order decides the sort block", order == expected,
+              "emitted %s, the tables ask for %s" % (order, expected))
 
         # the workbench and the generator have to agree on what a series string
         # is: it is used verbatim as an NML string, so LV_<NAME> -- which is fine

@@ -14,4 +14,7 @@
 sort (FEAT_TRAINS, [
     // Locomotives/Diesel
     df4c,
+
+    // Locomotives/Electric
+    tm2,
 ]);

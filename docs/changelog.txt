@@ -612,3 +612,157 @@ now instead of an accident of the row order:
   under `df4c`, builds the whole GRF and checks the grouping, the name callback,
   the two different names and the sort order, then restores the tables.
 
+### Fixed — the tier 3 rule editor never reached the server
+
+The paint scheme editor's write-back asked for `/api/api/graphics-parts`.
+`app.js` holds `API = '/api'` and `jsonFetch()` prepends it, so the two call sites
+that passed an already prefixed path -- the write-back and the rule preview
+(`/api/api/rules`) -- got a bare 404 from `server.py`.  Nothing raised: the switch
+blocks stayed on screen, the textarea kept the old cell, and saving the row wrote
+that stale cell, so a session's worth of section rules was lost while the screen
+looked saved.
+
+- Both call sites now pass the part **after** the prefix (`/graphics-parts`,
+  `/rules`), which is what every other call site already did.
+- Saving a row refuses while a write-back is outstanding, and says why: the
+  blocks on screen are not what the cell holds, so the save would look like it
+  worked while keeping the old rules.
+- `tools/check_workbench_routes.py` compares every `jsonFetch` call site in
+  `app.js` against the routes `server.py` dispatches, method included, and names
+  the doubled prefix instead of reporting a 404.  It needs no server and is now
+  part of the workbench's 一致性检查.
+- `tools/check_rule_editor.js` mirrors the client's prefix inside its extracted
+  `jsonFetch`, so driving the editor against a live server fails the way the
+  browser did instead of papering over the prefix.
+- A step in that tool that could not address its node used to resolve to slot
+  `-1` and silently do nothing, printing a cell it never produced; it now fails
+  loudly, and the steps read their node back from the tree after each write-back,
+  the way a re-rendered control does.
+- `tools/check_variant_menu.py` derives the expected `sort` order from the tables
+  instead of hardcoding the two vehicles that existed when it was written, so
+  adding a vehicle no longer fails the check that guards the sort block.
+
+### Added — a bounded range in `graphics_parts`, and named refusals
+
+A section rule could say "part 3 and later" (`pos>=3`) or "part 8 and earlier"
+(`pos<=8`), but there was **no way to say "part 3 to 8"**: `pos>=3` and `pos<=8`
+are two conditions on one variable, and a variable may be selected at most once
+along one path, so the parser refused the combination.  The cell language gained
+one condition form to fill exactly that hole:
+
+    pos=3..8          spaces are optional: `pos 3..8`
+
+It means parts 3 to 8 inclusive, compiles to a single switch case
+(`3..8: return ...;`) and is written back unchanged, because it is the one shape
+no comparison operator can spell.  `pos=3..8=a | pos<=2=b` stays legal: two
+cases of one switch that do not cover each other.
+
+- A range whose ends are the wrong way round is refused with
+  `区间 'pos=8..3' 的低值 8 比高值 3 大，永远不会匹配；请把小的写在前面`, instead
+  of compiling a case that can never match.  An end past 255 is accepted just
+  like `pos<=300`: the comparison variables hold 0..255, so it is harmless.
+- `<` and `>` stay accepted in a cell as sugar: `pos>2` is `pos>=3` and `pos<2`
+  is `pos<=1`, the same values with the number moved by one.  Because the
+  generator normalises them on write-back, the workbench's switch block editor
+  now lists **only the operators a cell stores unchanged** -- `<=`, `==`, `>=`
+  and 区间 (the bounded range, shown as two number boxes).  Listing `<` and `>`
+  made the control look broken: picking one was immediately rewritten to a
+  different symbol, so the selection appeared to refuse to stick.
+- Picking 区间 on a case such as `<=6` widens it to a real interval (`1..6`),
+  because `0..6` *is* `<=6` and would be written back as `<=`, which would leave
+  the author no way into range mode at all.
+- Writing a cell back normalises the shape: a single value keeps `==`, a range
+  that starts at 0 becomes `<=`, one that ends at 255 becomes `>=`, and anything
+  else stays `low..high` (`pos=0..6` comes back as `pos<=6`, the same values).
+  The variable is spelled out in full, so `pos=3..8` lands in the table as
+  `position_in_consist=3..8`.
+- A condition mistake is now reported as itself instead of as a malformed
+  basename: `第 2 段的 'pos<0=a' 无法解析：条件 'pos<0' 永远不成立`, `第 2 段的
+  'speed<=6=a' 无法解析：无法识别的条件片段 'speed<=6'；可用变量：consist, pos,
+  tailpos, unitpos`, and the reversed range above.  The generic 「每一条规则是
+  「条件=条件=…=贴图基名」，基名只能用小写字母、数字、下划线和连字符」 is now
+  reserved for a cell whose **basename** is malformed, which is what that message
+  actually describes.  (A basename may contain a dash; see the next section.)
+- `tools/check_graphics_parts.py` generates and compiles the new forms, and
+  checks each refused cell against the message it should produce.
+
+### Fixed — a basename may contain a dash
+
+A `graphics_parts` basename **is** a sprite sheet name, and the sheets the livery
+table names carry a dash: `df4c-korea-1`, `tm2-a`.  Naming one of a scheme's own
+sheets in another section is the whole point of the column, and the workbench's
+model dropdown offered exactly those names -- but the parser's basename rule was
+`[a-z0-9_]+`, so every one of them came back as 「基名只能用小写字母、数字和下划线」
+and the edit could not be saved.  Dashes are allowed now
+(`[a-z0-9][a-z0-9_-]*`), which is what the rest of the generator already assumed:
+`_identifier_part()` has always folded dashes when building the spriteset name.
+
+- Upper case, spaces and dots are still refused, and the message now says so.
+  The engine stays the same otherwise: a malformed **basename** is the one case
+  that answers with the generic 「基名只能用小写字母、数字、下划线和连字符」
+  message, because that is what it is about.
+- The NML identifier folds `-` and `_` into one underscore, so `a-b` and `a_b`
+  are two files but one spriteset name.  `define_spriteset()` used to return
+  quietly for a name it had already emitted, which would have drawn the first
+  sheet for both and left the second one's artwork unused, with nothing to
+  notice.  It now refuses and names both basenames.
+- `tools/check_graphics_parts.py` compiles cells that name dashed sheets and
+  refuses `a-b` next to `a_b`.
+
+### Added — a check for the documents themselves
+
+Two doc-only mistakes are easy to make and invisible until somebody reads the page
+on GitHub, so `tools/check_markdown_tables.py` now checks every `.md` file:
+
+- A `|` inside a table cell splits it into an extra column unless it is written
+  `\|`.  `docs/guide-zh.md` §5.6 had one such row (`2|8|2`), which is fixed.  The
+  *number* of backslashes is what matters -- `\\|` is an escaped backslash followed
+  by a real delimiter and still splits the cell -- so the check counts them rather
+  than looking at the character in front of the pipe.
+- A document that was read as the ANSI code page and written back as UTF-8 turns
+  every Chinese character into its GBK reading, and the result cannot be reversed
+  losslessly, because byte pairs the codec cannot map come back as `?`.  The check
+  refuses private-use characters (U+E000..U+F8FF) and U+FFFD, which is exactly
+  what that looks like.  (It happened here once, from a throwaway PowerShell
+  snippet: `Get-Content` decodes UTF-8 without a BOM as GBK and `WriteAllText`
+  writes UTF-8.  Nothing in the build noticed.)
+
+It needs no build, no network and no data:
+
+    python3 tools/check_markdown_tables.py
+
+### Fixed — `purchase_suffix` now chooses the depot sprite's sheet
+
+China Set: Trains writes a separate purchase spriteset per vehicle,
+`template_purchase ("<folder>", "<sheet>")`, drawn from whatever sheet the author
+picks -- usually the scheme's own, sometimes another scheme's (`8k-a`,
+`dj1-front`) and sometimes another vehicle's (`i8` borrows `ro8`, `rw21` borrows
+`yw21`).  The column that corresponds to it here, `purchase_suffix`, only renamed
+the spriteset and still drew the scheme's own sheet, so it could not do the one
+thing it exists for.
+
+That mattered: `graphics { purchase: ... }` takes the **first** scheme of the
+vehicle, so a scheme whose artwork has not been drawn yet could not be the default
+scheme.  The depot sprite asked for `gfx/<folder>/<id>.vox`, and nmlc stopped
+there, even when every section of that scheme was drawn from sheets that do exist.
+
+- `purchase_suffix` now names the basename (`<id>-<suffix>`), so
+  `purchase_suffix=a` makes the depot preview use `tm2-a`.  Empty keeps the old
+  behaviour -- the scheme's own sheet -- so no row in the tables changes meaning.
+- Only the first row of a vehicle has an effect, because only its purchase
+  spriteset is ever returned.  The generator warns when the column is set anywhere
+  else, instead of leaving it silently dead.
+- The sheet the depot preview uses joined `collect_sprite_basenames()`, which is
+  what `tools/verify_assets.py` and the workbench build the "still to be drawn"
+  list from.  A missing sheet was previously found by nmlc alone, so the
+  workbench's list of missing models did not mention the very file that stopped
+  the build.
+- The workbench shows the depot sheet next to the model in the livery list, with
+  its own rendered/missing badge, so the effect of the column is visible while
+  editing.
+- `tools/check_purchase_sprite.py` compiles a real GRF for: borrowing another
+  scheme's sheet; a borrowed sheet that does not exist (reported as a missing
+  model); the column set away from the first row (warned about); and the case that
+  unblocks a build -- a first scheme with no artwork of its own that borrows a
+  sheet which has some.
+

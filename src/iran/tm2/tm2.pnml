@@ -1,0 +1,161 @@
+/* ==========================================================================
+ *  China Set: Export Rail Vehicles Add-on
+ *  src/iran/tm2/tm2.pnml -- generated vehicle code
+ *
+ *  *** GENERATED FILE -- DO NOT EDIT BY HAND ***
+ *  Produced by genpnml.py from the tables in data/.
+ *  Edit data/*.csv and run `make gen` (or `python3 genpnml.py`) instead.
+ * ========================================================================== */
+
+/* ==========================================================================
+ *  SWITCHES  (callbacks, livery and cargo selection)
+ * ========================================================================== */
+
+switch (FEAT_TRAINS, SELF, switch_tm2_cargo_subtype, cargo_subtype) {
+    0: return string(STR_LV_AUTO);
+    1: return string(STR_LV_FRONT);
+    2: return string(STR_LV_BACK);
+    return CB_RESULT_NO_TEXT;
+}
+
+switch (FEAT_TRAINS, SELF, switch_tm2_articulated_part, extra_callback_info1) {
+    1..2: return tm2;
+    return CB_RESULT_NO_MORE_ARTICULATED_PARTS;
+}
+
+switch (FEAT_TRAINS, SELF, switch_tm2_capacity, position_in_articulated_veh % 3) {
+    1: return 1;
+    return 0;
+}
+
+switch (FEAT_TRAINS, SELF, switch_tm2_0_1_next, position_in_consist_from_end) {
+    0..2: return spriteset_tm2_gfx_tm2_b;
+    return spriteset_tm2_gfx_tm2_a;
+}
+
+switch (FEAT_TRAINS, SELF, switch_tm2_0_1, position_in_articulated_veh) {
+    0..2: return spriteset_tm2_gfx_tm2_a;
+    return switch_tm2_0_1_next;
+}
+
+switch (FEAT_TRAINS, SELF, switch_tm2_section_0, position_in_articulated_veh % 3) {
+    0: empty_sprites;
+    1: switch_tm2_0_1;
+    2: empty_sprites;
+    empty_sprites;
+}
+
+switch (FEAT_TRAINS, SELF, switch_tm2_section_1, position_in_articulated_veh % 3) {
+    1: spriteset_tm2_a;
+    empty_sprites;
+}
+
+switch (FEAT_TRAINS, SELF, switch_tm2_section_2, position_in_articulated_veh % 3) {
+    1: spriteset_tm2_b;
+    empty_sprites;
+}
+
+switch (FEAT_TRAINS, SELF, switch_tm2_graphics, cargo_subtype) {
+    0: switch_tm2_section_0;
+    1: switch_tm2_section_1;
+    2: switch_tm2_section_2;
+    switch_tm2_section_0;
+}
+
+/* ==========================================================================
+ *  SPRITESETS
+ * ========================================================================== */
+
+spriteset (spriteset_tm2, ZOOM_LEVEL_IN_4X, BIT_DEPTH_32BPP) {
+    template_standard ("iran/tm2", "tm2")
+}
+
+spriteset (spriteset_tm2_purchase_a, ZOOM_LEVEL_IN_4X, BIT_DEPTH_32BPP) {
+    template_purchase ("iran/tm2", "tm2-a")
+}
+
+spriteset (spriteset_tm2_a, ZOOM_LEVEL_IN_4X, BIT_DEPTH_32BPP) {
+    template_standard ("iran/tm2", "tm2-a")
+}
+
+spriteset (spriteset_tm2_b, ZOOM_LEVEL_IN_4X, BIT_DEPTH_32BPP) {
+    template_standard ("iran/tm2", "tm2-b")
+}
+
+spriteset (spriteset_tm2_purchase_b, ZOOM_LEVEL_IN_4X, BIT_DEPTH_32BPP) {
+    template_purchase ("iran/tm2", "tm2-b")
+}
+
+spriteset (spriteset_tm2_gfx_tm2_a, ZOOM_LEVEL_IN_4X, BIT_DEPTH_32BPP) {
+    template_standard ("iran/tm2", "tm2-a")
+}
+
+spriteset (spriteset_tm2_gfx_tm2_b, ZOOM_LEVEL_IN_4X, BIT_DEPTH_32BPP) {
+    template_standard ("iran/tm2", "tm2-b")
+}
+
+/* ==========================================================================
+ *  VEHICLE
+ * ========================================================================== */
+
+// Begin TM2
+/* name callback: series name in the depot window */
+item (FEAT_TRAINS, tm2) {
+    property {
+        // Menu
+        name:                           string(STR_NAME_TM2);
+        sprite_id:                      SPRITE_ID_NEW_TRAIN;
+        misc_flags:                     bitmask(TRAIN_FLAG_AUTOREFIT);
+        engine_class:                   ENGINE_CLASS_ELECTRIC;
+
+        // Availability
+        climates_available:             ALL_CLIMATES;
+        introduction_date:              date(2005,01,01);
+        model_life:                     30;
+        vehicle_life:                   30;
+        track_type:                     SACN;
+
+        // Cargo
+        refittable_cargo_classes:       bitmask(CC_PASSENGERS);
+        non_refittable_cargo_classes:   0;
+        cargo_allow_refit:              [];
+        cargo_disallow_refit:           [];
+        refit_cost:                     0;
+        default_cargo_type:             PASS;
+        ai_special_flag:                AI_FLAG_PASSENGER;
+        cargo_capacity:                 1;
+        loading_speed:                  20 << param_loading_speed;
+        cargo_age_period:               185 << param_cargo_decay;
+
+        // Stats
+        speed:                          100 km/h;
+        power:                          1000 kW;
+        weight:                         92 ton;
+        tractive_effort_coefficient:    0.25;
+        cost_factor:                    45;
+        running_cost_base:              RUNNING_COST_ELECTRIC;
+        running_cost_factor:            40;
+        reliability_decay:              10;
+    }
+    graphics {
+        // Menu
+        additional_text:                string(STR_DESC_EXPORT, string(STR_FULL_NAME_TM2), string(STR_LIVERY_EXPORT, string(STR_LV_FRONT), string(STR_LV_BACK)), string(STR_CAT_LOCO));
+        name:                           switch_name_series;
+        cargo_subtype_text:             switch_tm2_cargo_subtype;
+        can_attach_wagon:               locowagon;
+
+        // Graphics
+        default:                        switch_tm2_graphics;
+        purchase:                       spriteset_tm2_purchase_a;
+        articulated_part:               switch_tm2_articulated_part;
+
+        // Stats
+        length:                         switch_length_2_4_2;
+        cargo_capacity:                 switch_tm2_capacity;
+        cost_factor:                    45;
+        running_cost_factor:            40 * runningcostfactor();
+        purchase_running_cost_factor:   120;
+    }
+}
+
+// End TM2

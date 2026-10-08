@@ -256,9 +256,11 @@ VEHICLE_FIELDS: List[tuple] = [
 LIVERY_FIELDS: List[tuple] = [
     ("id", "identity", "text", "车辆 ID", {
         "required": True, "help": "必须已存在于某张车辆表中。"}),
-    ("sprite_suffix", "identity", "text", "精灵图后缀", {
+    ("sprite_suffix", "identity", "text", "模型后缀（本行自己的图）", {
         "default": "", "placeholder": "green",
-        "help": "后缀 green 表示模型是 gfx/<folder>/<id>-green.vox；留空表示直接用 <id>。"}),
+        "help": "这一行涂装自己的模型：后缀 green 表示 gfx/<folder>/<id>-green.vox；"
+                "留空表示直接用 <id>。同一台车的两行不能解析出同一个模型。"
+                "要改的只是车库购买列表里那张小图，请用下面的「购买菜单小图后缀」。"}),
     ("string", "identity", "text", "涂装名称", {
         "default": "LV_BUILD_YEAR", "placeholder": "LV_EXPORT_BLUE",
         "help": "改装菜单里显示的标签。涂装标签统一写成 LV_<名字>，生成器会把它映射成"
@@ -274,10 +276,17 @@ LIVERY_FIELDS: List[tuple] = [
                 "段内用 | 分隔规则，规则写成 条件=基名 或 只写基名（兜底）。"
                 "可用变量：pos（整列第几节，从 0 起）、tailpos（从尾部数）、"
                 "consist（整列节数）、unitpos（本车第几段）。"
+                "一个条件写成 pos<=2、pos==0、tailpos>=3，或上下都有界的 pos=3..8。"
                 "留空则只有车身段出图、两端隐形。"}),
     ("from_year", "dates", "int", "起始年份", {"default": "0", "min": 0, "help": "0 表示不限。"}),
     ("to_year", "dates", "int", "结束年份", {"default": "9999", "min": 0, "help": "9999 表示不限。"}),
-    ("purchase_suffix", "identity", "text", "菜单精灵图后缀", {"default": ""}),
+    ("purchase_suffix", "identity", "text", "购买菜单小图后缀", {
+        "default": "",
+        "help": "车库购买列表里显示的小图用哪张图。留空 = 用本行自己的模型"
+                "（上面的「模型后缀」）。填了就用 <id>-<值> 这张，例如填 a 就用 tm2-a："
+                "本行自己的模型还没画时，可以先让购买菜单借用另一张已有的图。"
+                "它**不改变这一行的模型**，所以不会和别的行撞同一个 .vox。"
+                "只对本车第一行涂装有效，因为车库小图取的就是第一行。"}),
     ("templates", "identity", "list", "分段模板", {
         "default": "", "placeholder": "template_standard|template_standard|template_standard",
         "help": "可选，每段一个模板名，用 | 分隔。"}),
